@@ -6,7 +6,7 @@ _Group 6 (Transmission Impossible)_
 * Charalampos
 
 ## Setup
-To run the code on your system, you need to have (python)[https://www.python.org/] and (pip)[https://pypi.org/project/pip/] installed.
+To run the code on your system, you need to have [python](https://www.python.org/) and [pip](https://pypi.org/project/pip/) installed.
 
 Once you have this, run the following commands from the root of the repository:
 
