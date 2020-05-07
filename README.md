@@ -25,7 +25,7 @@ Once you have this, run the following commands from the root of the repository:
 	```
 	* Windows (cmd.exe):
 	```
-	> Scripts\activate.bat
+	> env\Scripts\activate.bat
 	```
 * Install the requirements (BASH):
 ```
