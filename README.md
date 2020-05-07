@@ -10,11 +10,11 @@ To run the code on your system, you need to have (python)[https://www.python.org
 
 Once you have this, run the following commands from the root of the repository:
 
-* Install virtualenv to allow you to use virtual python environments:
+* Install virtualenv to allow you to use virtual python environments (BASH):
 ```
 # pip install --user virtualenv
 ```
-* Create a virtual environment called `env`:
+* Create a virtual environment called `env` (BASH):
 ```
 # virtualenv env
 ```
@@ -27,4 +27,7 @@ Once you have this, run the following commands from the root of the repository:
 	```
 	> Scripts\activate.bat
 	```
-
+* Install the requirements (BASH):
+```
+# pip install -r requirements.txt
+```
