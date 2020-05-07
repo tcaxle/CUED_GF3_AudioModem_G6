@@ -1,10 +1,10 @@
 # Audio Modem
 
-> *Idealised System Model*
+> **Idealised System Model**
 >
 > This section describes a simple idealized OFDM system model suitable for a time-invariant AWGN channel. 
 >
-> *Transmitter*
+> **Transmitter**
 >
 > ![Transmitter Diagram](https://upload.wikimedia.org/wikipedia/commons/4/4e/OFDM_transmitter_ideal.png)
 >
@@ -13,7 +13,7 @@
 >
 > An inverse FFT is computed on each set of symbols, giving a set of complex time-domain samples. These samples are then quadrature-mixed to passband in the standard way. The real and imaginary components are first converted to the analogue domain using digital-to-analogue converters (DACs); the analogue signals are then used to modulate cosine and sine waves at the carrier frequency, fc,  respectively. These signals are then summed to give the transmission signal, s(t).
 >
-> *Receiver*
+> **Receiver**
 >
 > ![Receiver Diagram](https://upload.wikimedia.org/wikipedia/commons/9/90/OFDM_receiver_ideal.png)
 >
