@@ -18,7 +18,7 @@ time_array = np.linspace(0, DURATION, samples, False)
 # Modulate the array with our frequency
 note = np.sin(FREQUENCY * time_array * 2 * np.pi)
 
-audio = np.hstack((note))
+audio = np.hstack(note)
 
 # normalize to 16-bit range
 audio *= 32767 / np.max(np.abs(audio))
