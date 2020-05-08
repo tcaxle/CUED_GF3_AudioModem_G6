@@ -3,15 +3,16 @@ A simple script to record the sound from your microphone for three seconds and p
 """
 import sounddevice as sd
 
-SAMPLE_RATE = 44100
-DURATION = 3
+def record_sound(sample_rate=44100, duration=1):
+    samples = int(sample_rate * duration)
+    print("RECORDING")
+    sound = sd.rec(samples, sample_rate, channels=1)
+    sd.wait()
+    return sound
 
-samples = int(SAMPLE_RATE * DURATION)
+def play_sound(sound, sample_rate=44100):
+    print("PLAYING")
+    sd.play(sound, sample_rate)
+    sd.wait()
 
-# Record in Mono
-myrecording = sd.rec(samples, SAMPLE_RATE, channels=1)
-sd.wait()
-
-# Play it back
-sd.play(myrecording, SAMPLE_RATE)
-sd.wait()
+play_sound(record_sound(44100, 5), 44100)
