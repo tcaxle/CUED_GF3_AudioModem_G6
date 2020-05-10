@@ -35,6 +35,8 @@ fft_data = np.zeros([num_ofdm_symbols,N],complex)
 
 demod_data = np.zeros([num_ofdm_symbols,N],complex)
 
+const_data = np.zeros([num_ofdm_symbols,N],complex)
+
 
 split_data = np.array_split(data,num_ofdm_symbols)  # 1) Split into blocks of 1056
 
@@ -43,6 +45,7 @@ split_data = np.array_split(data,num_ofdm_symbols)  # 1) Split into blocks of 10
 
 for i in range(num_ofdm_symbols):
     split_data[i] = split_data[i][k:]               # 2) Remove cyclic prefix
+
 
 for i in range(len(split_data)):      
     fft_data[i] = np.fft.fft(split_data[i],N)       # 3) FFT of symbols
@@ -75,8 +78,27 @@ demapping_table = {v : k for k, v in mapping_table.items()}
 
 
     # array of possible constellation points
-    constellation = np.array([x for x in demapping_table.keys()])
+constellation = np.array([x for x in demapping_table.keys()])
 
-    # index_list = np.abs(demod_data - self._constellation[:, None]).argmin(0)
-    # demod_bits = dec2bitarray(index_list, self.num_bits_symbol)
+## difference of abs distance of demod_data[0] with each item in constellation
+for i in range(len(demod_data)):
+ for j in range(N):    
+  min_dist = 100
+     
+  for const in constellation:
+    
+      dist = np.abs(demod_data[i][j] - const)
+    
+      if dist < min_dist:
+          min_dist = dist
+          chosen_const = const
+    
+      const_data[i][j]= chosen_const
 
+#Replace constellations with their mapping
+raw_data = [demapping_table[const] for const in const_data[0]] 
+
+#Convert from list of tuples to one large list
+raw_data = [i for sub in raw_data for i in sub]
+
+print(raw_data)
