@@ -69,4 +69,17 @@ for block in unconvolved_data:
 output_string = ""
 for bit in mapped_data:
     output_string += str(bit)
-print(output_string)
+
+
+def to_bytes(bits, size=8, pad='0'):
+    chunks = [bits[n:n+size] for n in range(0, len(bits), size)]
+    if pad:
+        chunks[-1] = chunks[-1].ljust(size, pad)
+    return bytearray([int(c, 2) for c in chunks])
+
+x = to_bytes(output_string)
+
+f = open('output', 'w+b')
+f.write(x)
+f.close()
+                     
