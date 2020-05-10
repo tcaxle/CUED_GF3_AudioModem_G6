@@ -39,14 +39,16 @@ demodulated_data = np.fft.fft(modulated_data, N)
 inverse_channel = np.fft.fft(channel, N)
 # 4.2) Convolve
 unconvolved_data = [np.divide(block, inverse_channel) for block in demodulated_data]
+# 4.3) Discard last half of each block
+unconvolved_data = [block[1:512] for block in unconvolved_data]
 
 # 5) Decide on optimal decoder for constellations
 # 5.1) Define constellation
 constellation = {
-    complex(+1, +1) / np.sqrt(2): (0, 0),
-    complex(-1, +1) / np.sqrt(2): (0, 1),
-    complex(-1, -1) / np.sqrt(2): (1, 1),
-    complex(+1, -1) / np.sqrt(2): (1, 0),
+    complex(+1, +1): (0, 0),
+    complex(-1, +1): (0, 1),
+    complex(-1, -1): (1, 1),
+    complex(+1, -1): (1, 0),
 }
 # 5.2) Minimum distance decode and map to bits
 mapped_data = []
@@ -63,17 +65,8 @@ for block in unconvolved_data:
         mapped_data.append(constellation[symbol][0])
         mapped_data.append(constellation[symbol][1])
 
-# 6) Decode binary data
-# 6.1) Group data into bytes
-mapped_data = [mapped_data[i:i+8] for i in range(0, len(mapped_data), 8)]
-# 6.2) Convert lists of 8 1s and 0s to strings
-bytes_array = []
-for byte in mapped_data:
-    byte_string = ""
-    for bit in byte:
-        byte_string += str(bit)
-    bytes_array.append(int(byte_string, 2))
-# 6.3) Convert strings to binary data
-output_data = bytes(bytes_array)
-# 6.4) Print binary data decoded UTF-8
-#print(output_data)
+# 6) Decode
+output_string = ""
+for bit in mapped_data:
+    output_string += str(bit)
+print(output_string)
