@@ -16,8 +16,8 @@
 import numpy as np
 
 # Import data from given files
-modulated_data = np.genfromtxt('gr6file.csv', delimiter='  ')
-channel = np.genfromtxt('gr6channel.csv', delimiter='  ')
+modulated_data = np.genfromtxt('data.csv', delimiter='  ')
+channel = np.genfromtxt('channel.csv', delimiter='  ')
 
 # 0) Set up constants
 N = 1024
@@ -66,22 +66,16 @@ for block in unconvolved_data:
         mapped_data.append(constellation[symbol][1])
 
 # 6) Decode
+# 6.1) Convert to byte strings
 output_string = ""
 for bit in mapped_data:
     output_string += str(bit)
-
-
-def to_bytes(bits, size=8, pad='0'):
-    chunks = [bits[n:n+size] for n in range(0, len(bits), size)]
-    if pad:
-        chunks[-1] = chunks[-1].ljust(size, pad)
-    return bytearray([int(c, 2) for c in chunks])
-
-x = to_bytes(output_string)
-print(x[0:18])
-del x[0:18]
-print(x[0:18])
-f = open('output.tiff', 'w+b')
-f.write(x)
-f.close()
-                     
+output_data = [output_string[i : i + 8] for i in range(0, len(output_string), 8)]
+# 6.2) Convert ints to bytearray
+output_data = bytearray([int(i, 2) for i in output_data])
+# 6.3 Remove first 18 items
+#output_data = output_data[18:]
+del output_data[0:18]
+# 6.4) Write output file
+with open("output.tiff", "w+b") as f:
+    f.write(output_data)
