@@ -9,39 +9,36 @@
 # 1) Split into blocks of 1056 (= 1024 + 32)
 # 2) Discard cyclic prefixes
 # 3) DFT
-# 4) Convolve with inverse FIR channel
-# 5) Decide on optimal decoder for constellations
+# 4) Unconvolve with inverse FIR channel
+# 5) Minimum distance decode
+# 6) Decode into text
 
 import numpy as np
 
 # Import data from given files
 modulated_data = np.genfromtxt('gr6file.csv', delimiter='  ')
-channel = np.genfromtxt('gr6channel.csv',delimiter='  ')
+channel = np.genfromtxt('gr6channel.csv', delimiter='  ')
+
+# 0) Set up constants
+N = 1024
+CYCLIC_PREFIX = 32
+block_length = N + CYCLIC_PREFIX
+block_number = int(len(modulated_data) / block_length)
 
 # 1) Split into blocks of 1056
-modulated_data = np.array_split(modulated_data, 491)
+modulated_data = np.array_split(modulated_data, block_number)
 
 # 2) Discard cyclic prefixes (first 32 bits)
-modulated_data = [block[32:] for block in modulated_data]
+modulated_data = [block[CYCLIC_PREFIX:] for block in modulated_data]
 
 # 3) DFT N = 1024
-"""
-NOT SURE IF THIS IS CORRECT
-"""
-demodulated_data = np.fft.fft(modulated_data, 1024)
+demodulated_data = np.fft.fft(modulated_data, N)
 
 # 4) Convolve with inverse FIR channel
 # 4.1) Invert the channel
-"""
-DON'T KNOW HOW TO INVERT THE CHANNEL
-"""
-inverse_channel = channel
+inverse_channel = np.fft.fft(channel, N)
 # 4.2) Convolve
-"""
-DON'T KNOW WHY CONVOLUTION ADDS 29 BITS TO DATA BLOCK (SEE PRINT)
-"""
-convolved_data = [np.convolve(block, inverse_channel) for block in demodulated_data]
-print(len(convolved_data[0]))
+unconvolved_data = [np.divide(block, inverse_channel) for block in demodulated_data]
 
 # 5) Decide on optimal decoder for constellations
 # 5.1) Define constellation
@@ -53,7 +50,7 @@ constellation = {
 }
 # 5.2) Minimum distance decode and map to bits
 mapped_data = []
-for block in convolved_data:
+for block in unconvolved_data:
     minimum_distance_block = []
     for data_symbol in block:
         # Get distance to all symbols in constellation
@@ -67,16 +64,16 @@ for block in convolved_data:
         mapped_data.append(constellation[symbol][1])
 
 # 6) Decode binary data
-# group data into bytes
+# 6.1) Group data into bytes
 mapped_data = [mapped_data[i:i+8] for i in range(0, len(mapped_data), 8)]
-# convert lists of 8 1s and 0s to strings
+# 6.2) Convert lists of 8 1s and 0s to strings
 bytes_array = []
 for byte in mapped_data:
     byte_string = ""
     for bit in byte:
         byte_string += str(bit)
     bytes_array.append(int(byte_string, 2))
-# convert strings to binary data
+# 6.3) Convert strings to binary data
 output_data = bytes(bytes_array)
-# print binary data decoded UTF-8
-print(output_data.decode())
+# 6.4) Print binary data decoded UTF-8
+#print(output_data)
