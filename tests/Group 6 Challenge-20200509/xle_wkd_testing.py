@@ -78,8 +78,10 @@ def to_bytes(bits, size=8, pad='0'):
     return bytearray([int(c, 2) for c in chunks])
 
 x = to_bytes(output_string)
-
-f = open('output', 'w+b')
+print(x[0:18])
+del x[0:18]
+print(x[0:18])
+f = open('output.tiff', 'w+b')
 f.write(x)
 f.close()
                      
