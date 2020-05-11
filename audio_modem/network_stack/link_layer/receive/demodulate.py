@@ -15,8 +15,8 @@ def demodulate(modulated_data, carrier_frequency, sample_rate):
     samples = len(modulated_data)
     duration = samples / sample_rate
     time_array = np.linspace(0, duration, samples, False)
-    carrier_signal_sin = np.sin(carrier_frequency * duration * 2 * np.pi)
-    carrier_signal_cos = np.cos(carrier_frequency * duration * 2 * np.pi)
+    carrier_signal_sin = np.sin(carrier_frequency * time_array * 2 * np.pi)
+    carrier_signal_cos = np.cos(carrier_frequency * time_array * 2 * np.pi)
     # demodulate by dividing data by carrier
     demodulated_data_sin = np.divide(modulated_data, carrier_signal_sin)
     demodulated_data_cos = np.divide(modulated_data, carrier_signal_cos)
