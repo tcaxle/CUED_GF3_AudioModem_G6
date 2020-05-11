@@ -27,7 +27,7 @@ def demodulate(modulated_data, carrier_frequency, sample_rate):
     demodulated_data_sin = demodulated_data_sin - average_sin
     demodulated_data_cos = demodulated_data_cos - average_cos
     # Make complex
-    demodulated_data = []
+    demodulated_data = np.array()
     for i in range(len(samples)):
         demodulated_data[i] = complex(demodulated_data_sin[i], demodulated_data_cos[i])
     return demodulated_data
