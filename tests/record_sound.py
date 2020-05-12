@@ -2,7 +2,7 @@
 A simple script to record the sound from your microphone for three seconds and play it back at you.
 """
 import sounddevice as sd
-from scipy.io.wavfile import write
+from scipy.io.wavfile import write, read
 
 def record_sound(save=False,sample_rate=44100, duration=5):
     samples = int(sample_rate * duration)
@@ -19,5 +19,4 @@ def play_sound(sound, sample_rate=44100):
     sd.play(sound, sample_rate)
     sd.wait()
 
-record_sound(True,44100,5)
-
+data = read('clap.wav', mmap=False)
