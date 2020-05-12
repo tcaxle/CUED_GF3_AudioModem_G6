@@ -1,27 +1,20 @@
 
 import numpy as np
-
-import itertools as it
-
-import struct  #Used to convert sound wave floats to 32bit binary rep
-
 from scipy.io.wavfile import read
 
+#Importing an example wave data set to experiment
 
 data = read('clap.wav', mmap=False)
-
 data = data[1]
 
 
-#data = np.array([0,0,1,1,0,1,1,0,0,1,1,0]) #example data for testing
-#channel = np.array([1, 0, 0.3+0.3j,0.2+0.2j]) 
-#channel2 = np.genfromtxt('channel.csv', delimiter='  ') #example channel for testing
-#data2=[]
-def fun(inp): 
+## 1) Convert floats into binary (possibly wrong, only used for the example dataset)
+
+def float_to_bin(inp): 
  int32bits = np.asarray(inp, dtype=np.float32).view(np.int32).item() # item() optional
  return '{:032b}'.format(int32bits)
 
-data = [fun(dat) for dat in data]
+data = [float_to_bin(dat) for dat in data]
 data = [char for num in data for char in num]
 
 for i in range(len(data)):
@@ -30,14 +23,8 @@ for i in range(len(data)):
 
 data = [int(num) for num in data]        
 data = np.array(data)
-"""                         Float into bits is not working...
-def floatToBits(f):
-    s = struct.pack('>f', f)
-    return np.binary_repr(struct.unpack('>l', s)[0])
 
-y= [floatToBits(dat) for dat in data[1]]
-"""
-
+## 2) Map data to constellation symbols
 def mapping(bits,const_length=2):
   """
    Takes:
@@ -70,11 +57,11 @@ def mapping(bits,const_length=2):
 mapped_datas = mapping(data)  ##Testing array
 
 
-#Inverse FFT 
+## 3) Inverse FFT 
 def IFFT(mapped_data):
      return list(np.fft.ifft(mapped_data))
 
-
+## 4) Split into blocks with given block_length, add given cyclic prefix
 def organise(data, block_length = 1024, cp = 32):
     """
         Takes:
@@ -98,17 +85,48 @@ def organise(data, block_length = 1024, cp = 32):
     return block_data
 
 prefix_data = organise(IFFT(mapped_datas))  ###Testing array
+###Unsure if we are supposed to do IFFT before splitting into blocks or after
 
-
-with open("clap_data.csv", "a+") as f:
-    for i in range(len(prefix_data)):
-        for j in range(len(prefix_data[i])):
-            f.write(str(prefix_data[i][j]))
-
-
-#Modulate Data with carrier
-# def modulate(data,channel):
-#     #Help, Stuck
-#     np.convolve(data,channel)
+ 
+### 5) Digital to Analog converter, acts as an interpolating filter
+###    using a sinc function as p(t) 
+       
+def DAC(pref_data,sample_rate):
     
-# print(modulate(prefixed_data,channel))
+    samples = len(pref_data)
+    duration = samples / sample_rate
+    time_array = np.linspace(0, duration, samples, False)
+    
+    carrier_sinc=np.sinc(time_array*np.pi/sample_rate)        
+    
+    carrier_sinc = [complex(it) for it in carrier_sinc]
+    
+    pref_data = [complex(t) for tt in pref_data for t in tt]
+    
+    return np.convolve(pref_data,carrier_sinc) # Should this be 2D convolution?
+    
+dac_data = DAC(prefix_data,44100)
+
+
+# 6) Modulate Data with carrier
+# Upconvert to obtain the passband waveform
+# Multiply be e^[j2pi(fc)k]  = cos(2pi(fc)k) + jsin(2pi(fc)k)      
+    
+def modulate(dac_data,carrier_frequency,sample_rate):
+    
+    samples = len(dac_data)
+    duration = samples / sample_rate
+    time_array = np.linspace(0, duration, samples, False)
+    carrier_signal_sin = np.sin(carrier_frequency * time_array * 2 * np.pi)
+    carrier_signal_cos = np.cos(carrier_frequency * time_array * 2 * np.pi)
+    
+    mod_data = np.multiply(dac_data,(carrier_signal_cos+carrier_signal_sin))
+                           
+    return np.real(mod_data)
+                           
+g = modulate(dac_data,88200,44100)
+
+
+with open("clap_data.csv", "w") as f:
+    for i in range(len(g)):
+        f.write(str(g[i])+ ",")
