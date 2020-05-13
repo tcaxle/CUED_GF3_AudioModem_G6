@@ -2,30 +2,28 @@
 import numpy as np
 from scipy.io.wavfile import read
 
-#Importing an example wave data set to experiment
+# Importing an example wave data set to experiment
 
-data = read('clap.wav', mmap=False)
-data = data[1]
-
-
-## 1) Convert floats into binary (possibly wrong, only used for the example dataset)
-
-def float_to_bin(inp):
-    int32bits = np.asarray(inp, dtype=np.float32).view(np.int32).item() # item() optional
-    return '{:032b}'.format(int32bits)
-
-data = [float_to_bin(dat) for dat in data]
-data = [char for num in data for char in num]
-
-for i in range(len(data)):
-    if data[i] == "-":
-        data[i] = '0'
-
-data = [int(num) for num in data]
-data = np.array(data)
+sample_frequency, data = read('clap.wav', mmap=False)
+"""
+Convert from floats to binary string
+NB: wav data bounded between -1 and 1
+NB: floats are only 16 bits (doubles are 32)
+"""
+# Add 1 to make all values positive
+# Then scale by 2^16 / 2 = 2^15
+# Then convert to integer (rounds down)
+# Now we have 32 bit integers
+data = [int((datum + 1) * np.power(2, 15)) for datum in data]
+# Now convert to binary strings
+# Use zfill to make sure each string is 16 bits long
+# (By default python would not include redundant zeroes)
+# (And that makes it super hard to decode)
+# And use "".join() to make the whole thing one big string
+data = "".join(format(datum, "b").zfill(16) for datum in data)
 
 ## 2) Map data to constellation symbols
-def mapping(bits,const_length=2):
+def mapping(bit_string,const_length=2):
     """
     Takes:
         bits         : a numpy array of binary data
@@ -34,10 +32,10 @@ def mapping(bits,const_length=2):
         mapped_data  : a list of data mapped to constellations
     """
     const_map = {
-        (0,0): complex(+1, +1),
-        (0,1): complex(-1, +1),
-        (1,1): complex(-1, -1),
-        (1,0): complex(+1, -1),
+        "00": complex(+1, +1),
+        "01": complex(-1, +1),
+        "11": complex(-1, -1),
+        "10": complex(+1, -1),
     }
 
     #First Test that the constellation length for modulation is valid
@@ -46,7 +44,8 @@ def mapping(bits,const_length=2):
         raise ValueError('Constellation length must be a power of 2.')
 
     #Divide into blocks equal to constellation length
-    split_data = [tuple(bits[i * const_length:(i + 1) * const_length]) for i in range((len(bits) + const_length - 1) // const_length )]
+    # Use array slicing on strings for array of strings
+    split_data = [bit_string[i : i + const_length] for i in range(0, len(bit_string), const_length)]
 
     #Map the blocks of data into constellations
     mapped_data = [const_map[values] for values in split_data]
@@ -54,6 +53,7 @@ def mapping(bits,const_length=2):
     return mapped_data
 
 mapped_datas = mapping(data)  ##Testing array
+print(mapped_datas)
 
 
 ## 3) Inverse FFT
