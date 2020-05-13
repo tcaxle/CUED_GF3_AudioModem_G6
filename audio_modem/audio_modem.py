@@ -6,8 +6,7 @@ The top level module for the project. Ties everything together
 ## External
 import numpy as np
 from scipy.io import wavfile
-from scipy.signal import bessel, lfilter, freqz
-from scipy.signal.signaltools import correlate
+from scipy.signal import bessel, lfilter, freqz, correlate
 import sounddevice as sd
 import matplotlib as mpl
 from cmath import phase
@@ -40,6 +39,7 @@ def transmit(output_audio=True, input_file="input.txt", output_to_file=False, ou
     # Group into symbol length chunks
     N = 2
     data = [data[i : i + N] for i in range(0, len(data), N)]
+    print(len(data))
 
     """
     == CONSTELLATION MAPPING ==
@@ -86,6 +86,7 @@ def transmit(output_audio=True, input_file="input.txt", output_to_file=False, ou
     SAMPLE_FREQUENCY = 44100
 
     symbols = len(data)
+    print(symbols)
     samples_per_symbol = int(SAMPLE_FREQUENCY / SYMBOL_FREQUENCY)
     samples = symbols * samples_per_symbol
 
@@ -179,6 +180,8 @@ def recieve(output_file="output.txt", input_from_file=False, input_file="data.wa
     SYMBOL_FREQUENCY = 1000
     LO_FREQUENCY = 12000
     lo_omega = LO_FREQUENCY * 2 * np.pi
+    difference_frequency = LO_FREQUENCY - CARRIER_FREQUENCY
+    difference_omega = difference_frequency * 2 * np.pi
 
     samples = len(data)
     samples_per_symbol = int(sample_frequency / SYMBOL_FREQUENCY)
@@ -191,8 +194,15 @@ def recieve(output_file="output.txt", input_from_file=False, input_file="data.wa
         lo.append(LO_AMPLITUDE * np.sin(lo_omega * time))
         time_array.append(time)
 
+    reference = []
+    for sample_index in range(samples_per_symbol):
+        time = sample_index / sample_frequency
+        reference.append(np.sin(difference_omega * time))
+    # Discard first 10 samples
+    reference = reference[10:]
+
     #plt.plot(np.fft.fft(data), label="Input")
-    plt.plot(data, label="input")
+    #plt.plot(data, label="input")
 
     # Multiply by local oscillators
     data = [datum * lo_datum for datum, lo_datum in zip(data, lo)]
@@ -203,12 +213,27 @@ def recieve(output_file="output.txt", input_from_file=False, input_file="data.wa
     CUTOFF_FREQUENCY = 10000
     data = bessel_lowpass_filter(data, CUTOFF_FREQUENCY, sample_frequency)
 
-    plt.plot(data, label="output")
-    plt.title("Recieved Data")
-    plt.legend()
-    plt.show()
+    # Split data into symbol chunks
+    N = samples_per_symbol
+    data = [data[i : i + N] for i in range(0, len(data), N)]
+    # Discard first 10 samples in each symbol
+    data = [datum[10:] for datum in data]
 
-    #plt.plot(np.fft.fft(data_cos), label="After LPF")
+    def get_complex(datum, reference):
+        # Magnitude
+        magnitude = 1 / np.max(np.abs(datum))
+        # Phase
+        datum *= magnitude
+        correlation = correlate(datum, reference)
+        delta_time_array = np.linspace(-len(reference), len(reference), 2 * len(reference) - 1)
+        time_shift = delta_time_array[correlation.argmax()] / sample_frequency
+        phase_shift = 2 * np.pi * (((0.5 + time_shift * sample_frequency) % 1.0) - 0.5)
+        return complex(np.cos(phase_shift), np.sin(phase_shift)) * magnitude
+    data = [get_complex(datum, reference) for datum in data]
+
+    #plt.plot(data[0], color="b")
+    #plt.plot(reference, label="reference", color="r")
+    #plt.title("Recieved Data")
     #plt.legend()
     #plt.show()
 
@@ -225,10 +250,7 @@ def recieve(output_file="output.txt", input_from_file=False, input_file="data.wa
 
     # 3) DFT N = 1024
     N = 1024
-    data = np.fft.fft(data, N)
-
-    # Flatten
-    data = [symbol for block in data for symbol in block]
+    data = [np.fft.fft(block, N) for block in data]
 
     """
     # 4) Convolve with inverse FIR channel
@@ -236,9 +258,12 @@ def recieve(output_file="output.txt", input_from_file=False, input_file="data.wa
     inverse_channel = np.fft.fft(channel, N)
     # 4.2) Convolve
     unconvolved_data = [np.divide(block, inverse_channel) for block in demodulated_data]
-    # 4.3) Discard last half of each block
-    unconvolved_data = [block[1:512] for block in unconvolved_data]
     """
+    # 4.3) Discard last half of each block
+    data = [block[0:511] for block in data]
+
+    # Flatten
+    data = [symbol for block in data for symbol in block]
 
     # 5) Decide on optimal decoder for constellations
     # 5.1) Define constellation
@@ -253,17 +278,11 @@ def recieve(output_file="output.txt", input_from_file=False, input_file="data.wa
         minimum_distance = min(distances.keys())
         return distances[minimum_distance]
 
-    N = samples_per_symbol
-    data = [data[i : i + N] for i in range(0, len(data), N)]
-    data = [np.average(datum) for datum in data]
     data = [minimum_distance_symbol(constellation, datum) for datum in data]
-
-    data = "".join(data)
 
     data = "".join(data)
     data = [data[i : i + 8] for i in range(0, len(data), 8)]
     data = bytearray([int(i, 2) for i in data])
-    print(data.decode())
     with open("output.txt", "wb") as f:
         f.write(data)
 
