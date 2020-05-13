@@ -12,7 +12,7 @@ data = data[1]
 
 def float_to_bin(inp):
     int32bits = np.asarray(inp, dtype=np.float32).view(np.int32).item() # item() optional
- return '{:032b}'.format(int32bits)
+    return '{:032b}'.format(int32bits)
 
 data = [float_to_bin(dat) for dat in data]
 data = [char for num in data for char in num]
