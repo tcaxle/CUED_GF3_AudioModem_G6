@@ -53,7 +53,7 @@ def mapping(bit_string,const_length=2):
     return mapped_data
 
 mapped_datas = mapping(data)  ##Testing array
-print(mapped_datas)
+
 
 
 ## 3) Inverse FFT
@@ -61,7 +61,7 @@ def IFFT(mapped_data):
     return list(np.fft.ifft(mapped_data))
 
 ## 4) Split into blocks with given block_length, add given cyclic prefix
-def organise(data, block_length = 1024, cp = 32):
+def organise(data, block_length = 1024, cp = 512):
     """
         Takes:
             data         : a list of mapped data

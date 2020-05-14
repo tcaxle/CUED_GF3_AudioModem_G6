@@ -25,7 +25,7 @@ def record_sound(save=False,sample_rate=44100, duration=5):
 
 # record_sound(True,44100,5)
 
-#num_samples, sound = record_sound(True)
+num_samples, sound = record_sound(True)
 
 
 CENTRE_FREQUENCY = 500
