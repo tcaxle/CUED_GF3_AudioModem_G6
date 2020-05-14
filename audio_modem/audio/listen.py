@@ -41,15 +41,14 @@ async def block_stream_generator():
     index_even = index_split
     odd_block = [None] * block_number
     even_block = [None] * block_number
-    print(even_block)
     async for data in inputstream_generator():
         # Add data to blocks
         data = data.flatten().tolist()
         odd_block[index_odd] = data
         even_block[index_even] = data
 
-        # Yield blocks if full
         if index_odd == index_max:
+            # Yield blocks if full
             if None not in odd_block:
                 odd_block = np.array([item for items in odd_block for item in items])
                 yield odd_block
@@ -58,6 +57,7 @@ async def block_stream_generator():
         else:
             index_odd += 1
         if index_even == index_max:
+            # Yield blocks if full
             if None not in even_block:
                 even_block = np.array([item for items in even_block for item in items])
                 yield even_block
