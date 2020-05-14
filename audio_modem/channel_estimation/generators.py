@@ -18,7 +18,8 @@ def sweep(duration=10, f_start=20, f_end=20000, sample_rate=44100, channels=1):
     f_sweep *= 32767 / np.max(np.abs(f_sweep))
     f_sweep = f_sweep.astype(np.int16)
     # Play noise
-    recording = sd.playrec(f_sweep, sample_rate, channels=1)
+    print(f_sweep)
+    recording = sd.playrec(f_sweep, sample_rate, channels=channels)
     sd.wait()
     return f_sweep, recording, time_array, frequency_array
 
@@ -36,6 +37,6 @@ def white_noise(duration=5, centre_frequency=500, sample_rate=44100, channels=1)
     noise_signal *= 32767 / np.max(np.abs(noise_signal))
     noise_signal = noise_signal.astype(np.int16)
     # Play signals
-    recording = sd.playrec(noise_signal, sample_rate, channels=1)
+    recording = sd.playrec(noise_signal, sample_rate, channels=channels)
     sd.wait()
     return noise_signal, recording, time_array
