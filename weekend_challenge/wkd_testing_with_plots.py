@@ -62,13 +62,13 @@ for b1 in [0, 1]:
     for b0 in [0, 1]:
         B = (b1, b0)
         Q = mapping[B]
-        plt.xlim(-1.5, 1.5)
-        plt.ylim(-1.5, 1.5)
-        plt.xlabel('Real part')
-        plt.ylabel('Imaginary part')
-        plt.title('4 PSK contellation with Gray-Mapping')
-        plt.plot(Q.real, Q.imag, 'bo', markersize=12)
-        plt.text(Q.real, Q.imag+0.2, "".join(str(x) for x in B), ha='center')
+        # plt.xlim(-1.5, 1.5)
+        # plt.ylim(-1.5, 1.5)
+        # plt.xlabel('Real part')
+        # plt.ylabel('Imaginary part')
+        # plt.title('QPSK contellation with Gray-Mapping')
+        # plt.plot(Q.real, Q.imag, 'bo', markersize=12)
+        # plt.text(Q.real, Q.imag+0.2, "".join(str(x) for x in B), ha='center')
 
 
 
@@ -76,7 +76,7 @@ for b1 in [0, 1]:
 mapped_data = []
 for block in unconvolved_data:
     minimum_distance_block = []
-    plt.plot(block.real, block.imag, 'r+', markersize=1);
+    plt.plot(block.real*np.sqrt(2), block.imag*np.sqrt(2), 'r+', markersize=1);
     for data_symbol in block:
         # Get distance to all symbols in constellation
         distances = {abs(data_symbol - constellation_symbol): constellation_symbol for constellation_symbol in constellation.keys()}
@@ -87,6 +87,25 @@ for block in unconvolved_data:
         # Append symbol data to mapped data array
         mapped_data.append(constellation[symbol][0])
         mapped_data.append(constellation[symbol][1])
+        
+mapping = {
+    (0,0): 1+1j,
+    (0,1): -1+1j,
+    (1,1): -1-1j,
+    (1,0): 1-1j,
+    }
+for b1 in [0, 1]:
+    for b0 in [0, 1]:
+        B = (b1, b0)
+        Q = mapping[B]
+        plt.xlim(-1.5, 1.5)
+        plt.ylim(-1.5, 1.5)
+        plt.xlabel('Real part')
+        plt.ylabel('Imaginary part')
+        plt.title('QPSK contellation with Gray-Mapping')
+        plt.plot(Q.real, Q.imag, 'bo', markersize=12, label='QPSK Symbols')
+        plt.text(Q.real, Q.imag+0.2, "".join(str(x) for x in B), ha='center')
+
 
 # 6) Decode
 # 6.1) Convert to byte strings
