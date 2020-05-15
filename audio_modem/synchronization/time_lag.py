@@ -4,8 +4,10 @@ import numpy as np
 from scipy.io.wavfile import read
     
 #Modify these with the names of the desired data
-TX_FILE = 'chirp.wav'
-RX_FILE = 'recorded_chirp.wav'
+# TX_FILE = 'comp_impulse.wav'
+# RX_FILE = 'rec_compimp.wav'
+TX_FILE = 'Blanket_Clap.wav'
+RX_FILE = 'Speaker_Clap.wav'
 
 
 sample_freq, sample = read(TX_FILE,mmap=False)
@@ -49,35 +51,86 @@ def lag_finder(sample, data, sample_rate, plot=False):
 
     return lag
 
-def synchronisation(lag, sample, data, sample_freq):
+lag= lag_finder(sample, data, 44100, plot=True)
+
+def synchronisation(lag, sample, data, sample_freq,mode = "beginning"):
      
     """
     This function takes the lag between two data sets, the two data sets
     and the sampled frequency. 
     
+    It also takes: "beginning" or "end" for operational mode.
+    
     It removes the lag between the beggining of the data (relative 
-    to the sample).
+    to the sample). Mode sets the direction of the lag.
     
     It returns the data with equal length as the sample (for plotting).
     """
     
     ## Lag should be more precise than sample rate
-    # Round order of magnitude of lag close to sample precision and add 1 for safety    
+    # Round order of magnitude of lag close to sample precision and add 1 for safety  
+    
+    lag= abs(lag)
 
     lag = np.round(lag,int(abs(np.floor(np.log10(lag))))+1)
 
 
     # Find the difference between the two samples
     sample_lag = int(np.floor(lag * sample_freq))
-    
-    #Assuming the data is always larger and has a delay before the sample is received
+        
+    #Assuming the data is larger and has a delay before the sample is received
     #So remove the sample lag from the data, getting closer to when the sample began
-    data = data[sample_lag:]
     
-    #Pad data with zeroes so the lengths of the arrays match
-    data = np.concatenate((data, np.zeros(len(sample)-len(data))))
+    if mode == "beginning":
+        data = data[sample_lag:]
+        #Pad data with zeroes so the lengths of the arrays match
+        data = np.concatenate((data, np.zeros(len(sample)-len(data))))
+        
+        
+    #Assuming the data is smaller than the sample and has a delay after the sample is received
+    #So pad data with zeroes in the beginning
+    #estimate and remove the end delay
+        
+    if mode == "end":
+        data = np.concatenate(((np.zeros(sample_lag)), data))
+        end_lag = len(data) - sample_lag
+        data = data[:end_lag]
     
     return data
+
+data = synchronisation(lag, sample, data, sample_freq,'end')
+
+x = np.linspace(0,int(len(data)/sample_freq),len(data))
+
+# plt.plot(x, data)
+# plt.ylim(0, 1)
+# plt.plot(x,sample/35767)
+# plt.show()
+
+
+fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(5, 3))
+axes[0].plot(x, sample/35767)
+axes[1].plot(x, data)
+axes[0].set_ylim(0,1)
+axes[1].set_ylim(0,1)
+axes[0].set_xlim(0,7)
+axes[1].set_xlim(0,7)
+
+axes[1].set_xlabel('Time (s)')
+axes[0].set_xlabel('Time (s)')
+
+axes[1].set_ylabel('Magnitude (Arbitrary)')
+axes[0].set_ylabel('Magnitude (Arbitrary)')
+
+
+axes[0].title.set_text('Impulse')
+axes[1].title.set_text('Response to Impulse')
+
+
+
+fig.tight_layout()
+
+
 
 
 ##Plots the data before and after shifting
@@ -96,5 +149,4 @@ if DEBUG:
     plt.plot(x,data)
     plt.show()
     plt.plot(x,sample/35767)
-    plt.plot(x,data)
     plt.show()
