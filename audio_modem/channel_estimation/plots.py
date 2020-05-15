@@ -23,9 +23,12 @@ def plot_time_and_freq(waves, time_array=None):
 
     # Frequency domain
     for wave, label in waves:
-        wave = wave.flatten()
+        try:
+            wave = wave.flatten()
+        except:
+            pass
         plt.title(label)
-        plt.specgram(wave, Fs=44100)
+        plt.specgram(wave, Fs=44100, cmap="Blues")
         plt.show()
 
 def plot_sweep(duration=10, sample_rate=44100):
@@ -35,14 +38,27 @@ def plot_sweep(duration=10, sample_rate=44100):
     output_wave = output_wave.astype(float)
     input_wave *= 1 / np.max(np.abs(input_wave))
     output_wave *= 1 / np.max(np.abs(output_wave))
+    difference_wave = np.array([input_wave[i] - output_wave[i] for i in range(len(input_wave.tolist()))])
 
-    # Time domain
     plot_time_and_freq(time_array=time_array, waves=[
         (input_wave, "input"),
         (output_wave, "output"),
+        (difference_wave, "difference"),
     ])
 
-    # Frequency Domain
+def plot_stepped_sweep(duration=10, sample_rate=44100, steps=100):
+    input_wave, output_wave, time_array, frequency_array = generators.stepped_sweep(duration=duration, steps=steps, f_start=20, f_end=20000, sample_rate=sample_rate)
+    # Normalise
+    input_wave = np.array(input_wave).astype(float)
+    output_wave = np.array(output_wave).astype(float)
+    input_wave *= 1 / np.max(np.abs(input_wave))
+    output_wave *= 1 / np.max(np.abs(output_wave))
+    difference_wave = np.array([input_wave[i] - output_wave[i] for i in range(len(input_wave.tolist()))])
 
+    plot_time_and_freq(time_array=time_array, waves=[
+        (input_wave, "input"),
+        (output_wave, "output"),
+        (difference_wave, "difference"),
+    ])
 
 plot_sweep()
