@@ -1,28 +1,30 @@
 
 import numpy as np
 from scipy.io.wavfile import read
+import matplotlib.pyplot as plt
 
-# Importing an example wave data set to experiment
+PLOTTING = True
 
-sample_frequency, data = read('clap.wav', mmap=False)
-"""
-Convert from floats to binary string
-NB: wav data bounded between -1 and 1
-NB: floats are only 16 bits (doubles are 32)
-"""
-# Add 1 to make all values positive
-# Then scale by 2^16 / 2 = 2^15
-# Then convert to integer (rounds down)
-# Now we have 32 bit integers
-data = [int((datum + 1) * np.power(2, 15)) for datum in data]
-# Now convert to binary strings
-# Use zfill to make sure each string is 16 bits long
-# (By default python would not include redundant zeroes)
-# (And that makes it super hard to decode)
-# And use "".join() to make the whole thing one big string
-data = "".join(format(datum, "b").zfill(16) for datum in data)
+
+## 1) Convert from floats to binary string
+## NB: wav data bounded between -1 and 1
+## NB: floats are only 16 bits (doubles are 32)
+
+def float_to_bin(data):
+    # Add 1 to make all values positive
+    # Then scale by 2^16 / 2 = 2^15
+    # Then convert to integer (rounds down)
+    # Now we have 32 bit integers
+    data = [int((datum + 1) * np.power(2, 15)) for datum in data]
+    # Now convert to binary strings
+    # Use zfill to make sure each string is 16 bits long
+    # (By default python would not include redundant zeroes)
+    # (And that makes it super hard to decode)
+    # And use "".join() to make the whole thing one big string
+    return "".join(format(datum, "b").zfill(16) for datum in data)
 
 ## 2) Map data to constellation symbols
+
 def mapping(bit_string,const_length=2):
     """
     Takes:
@@ -32,10 +34,10 @@ def mapping(bit_string,const_length=2):
         mapped_data  : a list of data mapped to constellations
     """
     const_map = {
-        "00": complex(+1, +1),
-        "01": complex(-1, +1),
-        "11": complex(-1, -1),
-        "10": complex(+1, -1),
+        "00": complex(+1, +1)/np.sqrt(2),
+        "01": complex(-1, +1)/np.sqrt(2),
+        "11": complex(-1, -1)/np.sqrt(2),
+        "10": complex(+1, -1)/np.sqrt(2),
     }
 
     #First Test that the constellation length for modulation is valid
@@ -52,11 +54,9 @@ def mapping(bit_string,const_length=2):
 
     return mapped_data
 
-mapped_datas = mapping(data)  ##Testing array
 
+## 4) Split into blocks with given block_length, IFFT and then add given cyclic prefix
 
-
-## 4) Split into blocks with given block_length, add given cyclic prefix
 def organise(data, block_length = 1024, cp = 512):
     """
         Takes:
@@ -74,21 +74,24 @@ def organise(data, block_length = 1024, cp = 512):
     ifft_data = [list(np.fft.ifft(block,block_length)) for block in block_data]
 
     #Adds cyclic prefixes
-    for block in ifft_data:
-        cyc = block[-cp:]
-        block = np.hstack([cyc,block])
-    
-    block_data = [np.hstack(cyc,block) for block in ifft_data with cyc = block[-cp:]] 
+    block_data = [np.hstack([block[-cp:],block]) for block in ifft_data] 
 
-prefix_data = organise(IFFT(mapped_datas))  ###Testing array
-###Unsure if we are supposed to do IFFT before splitting into blocks or after
+    ### The above line does what the following commented code does, but in one line
+    ### The code below is kept for ease of reading/understanding
+    
+    # for block in ifft_data:
+    #     cyc = block[-cp:]
+    #     block = np.hstack([cyc,block])
+        
+    return block_data
+   
 
 ### 5) Digital to Analog converter, acts as an interpolating filter
 ###    using a sinc function as p(t)
 
 def DAC(pref_data,sample_rate):
 
-    samples = len(pref_data)
+    samples = len(pref_data[0])
     duration = samples / sample_rate
     time_array = np.linspace(0, duration, samples, False)
 
@@ -96,11 +99,8 @@ def DAC(pref_data,sample_rate):
 
     carrier_sinc = [complex(it) for it in carrier_sinc]
 
-    pref_data = [complex(t) for tt in pref_data for t in tt]
+    return [np.convolve(block,carrier_sinc,'same') for block in pref_data]   
 
-    return np.convolve(pref_data,carrier_sinc) # Should this be 2D convolution?
-
-dac_data = DAC(prefix_data,44100)
 
 
 # 6) Modulate Data with carrier
@@ -109,18 +109,57 @@ dac_data = DAC(prefix_data,44100)
 
 def modulate(dac_data,carrier_frequency,sample_rate):
 
-    samples = len(dac_data)
+    samples = len(dac_data[0])
     duration = samples / sample_rate
     time_array = np.linspace(0, duration, samples, False)
     carrier_signal_sin = np.sin(carrier_frequency * time_array * 2 * np.pi)
     carrier_signal_cos = np.cos(carrier_frequency * time_array * 2 * np.pi)
 
-    mod_data = np.multiply(dac_data,(carrier_signal_cos+carrier_signal_sin))
+    mod_data = [np.multiply(blocks,(carrier_signal_cos+carrier_signal_sin)) for blocks in dac_data]
 
-    return np.real(mod_data)
+    return list(np.real(mod_data))
 
-g = modulate(dac_data,88200,44100)
 
-with open("clap_data.csv", "w") as f:
-    for i in range(len(g)):
-        f.write(str(g[i])+ ",")
+
+
+if __name__ == "__main__":
+    
+# Importing an example wave data set to experiment
+
+    sample_frequency, data = read('clap.wav', mmap=False)
+    
+    bin_data = float_to_bin(data)
+
+    mapped_datas = mapping(bin_data) 
+        
+    prefix_data = organise(mapped_datas)
+
+    dac_data = DAC(prefix_data,44100)
+
+    g = modulate(dac_data,88200,44100)
+    
+    g = [point for block in g for point in block]
+    
+    np.savetxt("clap_data.csv", g, delimiter=",")
+        
+    if PLOTTING:
+        
+    # Plot prefix_data in the time domain
+    # x axis = 0-7.5 seconds
+    # y axis = absolute value of prefix data
+        
+        sample_length = len(data)
+        duration = sample_length/16/sample_frequency
+        cp_length = len(prefix_data)*len(prefix_data[0])
+        cp_duration = cp_length/sample_length*duration
+        
+        x = np.linspace(0,cp_duration,cp_length)
+        y = [dat for prefix in prefix_data for dat in np.abs(prefix)]
+        plt.plot(x,y)
+        plt.title("Data after IFFT and with prepended CP")
+        plt.ylabel('Magnitude (N/A)')
+        plt.xlabel('time (s)')
+        plt.show()
+
+
+
