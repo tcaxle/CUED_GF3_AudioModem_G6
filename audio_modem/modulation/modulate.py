@@ -56,10 +56,6 @@ mapped_datas = mapping(data)  ##Testing array
 
 
 
-## 3) Inverse FFT
-def IFFT(mapped_data):
-    return list(np.fft.ifft(mapped_data))
-
 ## 4) Split into blocks with given block_length, add given cyclic prefix
 def organise(data, block_length = 1024, cp = 512):
     """
@@ -68,20 +64,21 @@ def organise(data, block_length = 1024, cp = 512):
             block_length : desired length of OFDM symbols
             cp           : desired length of cyclic prefix
         Returns:
-            block_data  : a list of data correctly formated in blocks with the cp appended
+            block_data  : a list of data correctly formated in blocks, IFFT'ed and with the cp appended
     """
 
     #Divides into blocks of length "block_length"
     block_data = [data[i * block_length:(i + 1) * block_length] for i in range((len(data) + block_length - 1) // block_length )]
 
-    #Makes a list of all cyclic prefixes
-    cyc = [const[-cp:] for const in block_data]
+    #Does the IFFT on each block in the data
+    ifft_data = [list(np.fft.ifft(block,block_length)) for block in block_data]
 
-    #Loops and adds all cyclic prefixes into the beginning of each data block
-    for i in range(len(block_data)):
-        block_data[i].insert(0,cyc[i][0])
-
-    return block_data
+    #Adds cyclic prefixes
+    for block in ifft_data:
+        cyc = block[-cp:]
+        block = np.hstack([cyc,block])
+    
+    block_data = [np.hstack(cyc,block) for block in ifft_data with cyc = block[-cp:]] 
 
 prefix_data = organise(IFFT(mapped_datas))  ###Testing array
 ###Unsure if we are supposed to do IFFT before splitting into blocks or after
