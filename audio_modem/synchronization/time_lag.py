@@ -1,23 +1,19 @@
 import matplotlib.pyplot as plt
 from scipy import signal
 import numpy as np
-from scipy.io.wavfile import read
+from scipy.io.wavfile import read,write
     
-#Modify these with the names of the desired data
-# TX_FILE = 'comp_impulse.wav'
-# RX_FILE = 'rec_compimp.wav'
-TX_FILE = 'chirp.wav'
-RX_FILE = 'recorded_chirp.wav'
-
-
-sample_freq, sample = read(TX_FILE,mmap=False)
-data_freq, data = read(RX_FILE, mmap=False)
-
-### Padding the sample to have the same length as the recording
-### Needed for correlation
-
-sample = np.concatenate((sample, np.zeros(len(data)-len(sample))))
-
+##### NOTES FOR THE FUTURE: 
+##### 1) THIS FILE IS DIFFICULT TO PARSE DUE TO POOR FORMATTING (APOLOGIES)
+##### 2) SYNCHRONISATION ONLY WORKS IF DATA DRIFTS FORWARD
+##### 3) IF THE DATA DRIFTS BACKWARDS, ESTIMATES GIVE 0 DELAY,
+##### SYNCHRO FUNCTION SHIFTS NOTHING
+##### 4) CORRELATION DOESN'T WORK IN THAT CASE, BOTH MAX OR GRADIENT MAX FAIL
+##### 5) FOR  DELAYS BOTH IN THE BEGGINING AND END OF FILES, 
+##### ITERATION THROUGH THE LAG AND SYNCHRO FUNCTIONS SHOULD: CLEAR THEM ALL,
+##### THEN ALIGN THE DATA WITH THE SAMPLE AND ADD ZEROES EVERYWHERE ELSE. 
+##### THIS WILL BE POSSIBLE IF BACKWARDS DRIFT IS HANDLED, NOT YET IMPLEMENTED
+##### 6) THE PLOTTING FUNCTION IS FOR TESTING ONLY, NOT REQUIRED
 
 def lag_finder(sample, data, sample_rate, plot=False, grad_mode = True):
     
@@ -49,13 +45,17 @@ def lag_finder(sample, data, sample_rate, plot=False, grad_mode = True):
         dd_data = np.gradient(np.gradient(data))
  
     #Correlation between sample and data, normalised
-    corr = signal.correlate(dd_data, dd_sample, mode='same') / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='same')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
+    corr = signal.correlate(dd_data, dd_sample, mode='same')
+    
+    #This normalised the corr, but it gives errors
+    corr = corr / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='same')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
     
     #Create and shift x axis from -0.5 to 0.5
     delay_arr = np.linspace(-0.5*n/sample_rate, 0.5*n/sample_rate, n)
     
     #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
     lag = delay_arr[np.argmax(corr)]
+    
     if lag < 0:
         print('data is ' + str(np.round(abs(lag),3)) + 's ahead of the sample')
     else:
@@ -68,10 +68,13 @@ def lag_finder(sample, data, sample_rate, plot=False, grad_mode = True):
         plt.xlabel('Lag')
         plt.ylabel('Correlation coeff')
         plt.show()
-
-    return lag, dd_data, dd_sample
-
-
+    
+    if grad_mode:
+        return lag, grad_mode, dd_data, dd_sample 
+    else:
+        return lag, grad_mode, 0, 0
+    
+     
 def synchronisation(sample, data, sample_freq, lag):
      
     """
@@ -90,36 +93,35 @@ def synchronisation(sample, data, sample_freq, lag):
     lag_sign = lag
     #print(lag,type(lag))
     lag = abs(np.round(lag,int(abs(np.floor(np.log10(abs(lag)))))+1))
-
-
+    
     # Find the difference between the two samples
     sample_lag = int(np.floor(lag * sample_freq))
-    #Assuming the data is larger and has a delay before the sample is received
-    #So remove the sample lag from the data, getting closer to when the sample began
+    
+    #Assuming the data has a delay at the beginning
     
     if lag_sign > 0:
-        
+                
+        #remove the sample lag from the data, getting closer to when the sample began
         data = data[sample_lag:]
         
-        #Pad data with zeroes so the lengths of the arrays match
-        data = np.concatenate((data, np.zeros(len(sample)-len(data))))
-     
-    #Assuming the data is smaller than the sample and has a delay after the sample is received
-    #So pad data with zeroes in the beginning
-    #estimate and remove the end delay
+        #Pad data with sample_lag amount of zeroes so the lengths of the arrays match
+        data = np.concatenate((data,(np.zeros(sample_lag,dtype=np.int16))),axis=None)
+              
+        
+    ###Assuming the data arrives faster than the sample (negative delay)
+    ###This occurs if we estimate the lag too early. Feeding the signal again should
+    ###trigger this and try and shift the data to the right
+    
         
     elif lag_sign < 0:
         
-        lag= abs(lag)
-        data = np.concatenate(((np.zeros(sample_lag)), data))
-        end_lag = len(data) - sample_lag
-        data = data[:end_lag]
-    
+        #Pad sample_lag amount of zeroes until data and sample match    
+        data = np.concatenate(((np.zeros(sample_lag,dtype=np.int16)), data),axis=None)
+
+        #remove the end samples
+        data = data[:-sample_lag]
+        
     return data
-
-
-
-
 
 
 def plot_data(sample,data,sample_freq):
@@ -139,59 +141,100 @@ def plot_data(sample,data,sample_freq):
     5) Plots the impulse and impulse responce (Relevance?)
     """
     
-    delay, gdata, gsample = lag_finder(sample,data,sample_freq,True)
+    delay, grad, gdata, gsample = lag_finder(sample,data,sample_freq,True,grad_mode=True)
     
-    x = np.linspace(0,int(len(gdata)/sample_freq),len(gdata))
-    plt.plot(x,gsample/35767,'b',label='sent grad')
-    plt.xlabel("Time (s)")
-    plt.ylabel("second deriv (N/A)")
-    plt.plot(x,gdata,'y',label='rec grad')
-    plt.xlabel("Time (s)")
-    plt.axvline(delay,color='r',label='lag')
-    plt.legend()
-    plt.show()
-    
+    # if grad:
+    #     x = np.linspace(0,int(len(gdata)/sample_freq),len(gdata))
+    #     plt.plot(x,gsample/np.max(gsample),'b',label='sent grad')
+    #     plt.xlabel("Time (s)")
+    #     plt.ylabel("second deriv (N/A)")
+    #     plt.plot(x,gdata/np.max(gdata),'y',label='rec grad')
+    #     plt.xlabel("Time (s)")
+    #     plt.axvline(delay,color='r',label='lag')
+    #     plt.legend()
+    #     plt.show()
+        
     x = np.linspace(0,int(len(data)/sample_freq),len(data))
-    plt.plot(x,data,'r', label = 'rec data')
+    plt.plot(x,data/np.max(data),'r', label = 'rec data')
     plt.xlabel("Time (s)")
     plt.ylabel("Amplitude (N/A)")
     plt.title('Before and After Lag shift')
     
     data = synchronisation(sample,data,sample_freq,delay)
     
-    plt.plot(x,data,'g',label="shifted rec data")
-    plt.legend()
-    plt.show()
+    # plt.plot(x,data/np.max(data),'g',label="shifted rec data")
+    # plt.legend()
+    # plt.show()
     
-    plt.plot(x,sample/35767,label='sent data')
-    plt.plot(x,data,label = 'rec data')
-    plt.xlabel("Time (s)")
-    plt.ylabel("Amplitude (N/A)")
-    plt.legend()
-    plt.title('Sent and Received data, matched')
-    plt.show()
+    # plt.plot(x,sample/np.max(sample),label='sent data')
+    # plt.plot(x,data/np.max(data),label = 'rec data')
+    # plt.xlabel("Time (s)")
+    # plt.ylabel("Amplitude (N/A)")
+    # plt.legend()
+    # plt.title('Sent and Received data, matched')
+    # plt.show()
 
 
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(5, 3))
-    axes[0].plot(x, sample/35767)
-    axes[1].plot(x, data)
-    axes[0].set_ylim(0,1)
-    axes[1].set_ylim(0,1)
-    axes[0].set_xlim(0,7)
-    axes[1].set_xlim(0,7)
+    # fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(5, 3))
+    # axes[0].plot(x, sample/np.max(sample))
+    # axes[1].plot(x, data/np.max(data))
+    # axes[0].set_ylim(0,1)
+    # axes[1].set_ylim(0,1)
+    # axes[0].set_xlim(0,7)
+    # axes[1].set_xlim(0,7)
     
-    axes[1].set_xlabel('Time (s)')
-    axes[0].set_xlabel('Time (s)')
+    # axes[1].set_xlabel('Time (s)')
+    # axes[0].set_xlabel('Time (s)')
     
-    axes[1].set_ylabel('Magnitude (Arbitrary)')
-    axes[0].set_ylabel('Magnitude (Arbitrary)')
+    # axes[1].set_ylabel('Magnitude (Arbitrary)')
+    # axes[0].set_ylabel('Magnitude (Arbitrary)')
     
     
-    axes[0].title.set_text('Impulse')
-    axes[1].title.set_text('Response to Impulse')
+    # axes[0].title.set_text('Impulse')
+    # axes[1].title.set_text('Response to Impulse')
         
     
-    fig.tight_layout()
-    return 0
+    # fig.tight_layout()
+    return data
 
-plot_data(sample,data,sample_freq)
+
+
+########    THIS IS ALL TESTING #########
+# ####
+# TX_FILE = "sent.wav"
+# RX_FILE = "beg_rec.wav"   
+# sample_freq, sample = read(TX_FILE,mmap=False)
+# data_freq, data = read(RX_FILE, mmap=False)
+# sample = np.concatenate((sample, np.zeros(len(data)-len(sample))),axis=None)
+
+# lag,grad,dat,dat2 = lag_finder(sample, data, sample_freq,grad_mode=True)
+
+# new_data = synchronisation(sample, data, sample_freq, lag)
+
+# write("beg_rec_fixed.wav",sample_freq,new_data)
+# ####
+
+
+# TX_FILE = "sent.wav"
+# RX_FILE = "end_rec.wav"
+# sample_freq, sample = read(TX_FILE,mmap=False)
+# data_freq, data = read(RX_FILE, mmap=False)
+# sample = np.concatenate((sample, np.zeros(len(data)-len(sample),dtype=np.int16)))
+
+# lag,grad,dat,dat2 = lag_finder(sample, data, sample_freq,True,grad_mode=True)
+
+# new_data = synchronisation(sample, data, sample_freq, lag)
+
+# write("end_rec_fixed.wav",sample_freq,new_data)
+
+# TX_FILE = 'sent.wav'
+# RX_FILE = "both_rec.wav"
+# sample_freq, sample = read(TX_FILE,mmap=False)
+# data_freq, data = read(RX_FILE, mmap=False)
+# sample = np.concatenate((sample, np.zeros(len(data)-len(sample))))
+
+# lag,grad,dat,dat2 = lag_finder(sample, data, sample_freq,True, grad_mode=True)
+
+# new_data = synchronisation(sample, data, sample_freq, lag)
+
+# write("both_rec_fixed.wav",sample_freq,new_data)
