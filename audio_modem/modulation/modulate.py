@@ -11,6 +11,18 @@ PLOTTING = True
 ## NB: floats are only 16 bits (doubles are 32)
 
 def float_to_bin(data):
+    """
+    Parameters
+    ----------
+    data : ndarray,list
+        Imported wav file (int16), written data,etc
+    
+    Returns
+    -------
+    LIST
+        Converts a string of floats into ints (round down)
+        then into binary and returns it as a large list.
+    """
     # Add 1 to make all values positive
     # Then scale by 2^16 / 2 = 2^15
     # Then convert to integer (rounds down)
@@ -26,13 +38,24 @@ def float_to_bin(data):
 ## 2) Map data to constellation symbols
 
 def mapping(bit_string,const_length=2):
-    """
-    Takes:
-        bits         : a numpy array of binary data
-        const_length : constellation length (must be power of two)
-    Returns:
-        mapped_data  : a list of data mapped to constellations
-    """
+    '''
+    Parameters
+    ----------
+    bit_string : LIST
+        A list containing binary values
+    const_length : INT, optional
+        Length of constellations. Must be a power of 2.
+        Other lengths besides 2 not implemented here.
+        The default is 2.
+        
+    Returns
+    -------
+    mapped_data : LIST
+        List containing mapped constellation symbols in QPSK using
+        Gray Mapping
+
+    '''
+    
     const_map = {
         "00": complex(+1, +1)/np.sqrt(2),
         "01": complex(-1, +1)/np.sqrt(2),
@@ -59,14 +82,26 @@ def mapping(bit_string,const_length=2):
 
 def organise(data, block_length = 1024, cp = 512):
     """
-        Takes:
-            data         : a list of mapped data
-            block_length : desired length of OFDM symbols
-            cp           : desired length of cyclic prefix
-        Returns:
-            block_data  : a list of data correctly formated in blocks, IFFT'ed and with the cp appended
-    """
+    Parameters
+    ----------
+    data : LIST
+        Takes a list of mapped constellation symbols
+    block_length : INT, optional
+        Length of the blocks in which the symbols will be divided.
+        The default is 1024.
+    cp : INT, optional
+        Length of the cyclic prefix to be prepended into each
+        block. The default is 512.
 
+    Returns
+    -------
+    block_data : LIST of LISTS
+        First, the data is split into blocks of a defined length.
+        Then, in each block, the cyclic prefix is prepended.
+        block_data is the returned list containing the output of 
+        the above operations.
+    """
+    
     #Divides into blocks of length "block_length"
     block_data = [data[i * block_length:(i + 1) * block_length] for i in range((len(data) + block_length - 1) // block_length )]
 
@@ -90,6 +125,20 @@ def organise(data, block_length = 1024, cp = 512):
 ###    using a sinc function as p(t)
 
 def DAC(pref_data,sample_rate):
+    """
+    Parameters
+    ----------
+    pref_data : LIST
+        Data that's already been through IFFT 
+        and has CP prepended in each block
+    sample_rate : INT
+        Sample rate of the data
+
+    Returns
+    -------
+    LIST
+        Returns a list that has the data convolved with a sinc function
+    """
 
     samples = len(pref_data[0])
     duration = samples / sample_rate
@@ -108,6 +157,22 @@ def DAC(pref_data,sample_rate):
 # Multiply be e^[j2pi(fc)k]  = cos(2pi(fc)k) + jsin(2pi(fc)k)
 
 def modulate(dac_data,carrier_frequency,sample_rate):
+    """
+    Parameters
+    ----------
+    dac_data : LIST of LISTS
+        A list containing OFDM blocks with added CPs
+    carrier_frequency : INT
+        Carrier frequency of the modulation to be done
+    sample_rate : INT
+        Sampling rate of the data, same as sampling frequency
+
+    Returns
+    -------
+    LIST of LISTS
+        Data in blocks after being modulated by a sinc pulse
+
+    """
 
     samples = len(dac_data[0])
     duration = samples / sample_rate
@@ -140,7 +205,7 @@ if __name__ == "__main__":
     
     g = [point for block in g for point in block]
     
-    np.savetxt("clap_data.csv", g, delimiter=",")
+    #np.savetxt("clap_data.csv", g, delimiter=",")
         
     if PLOTTING:
         
@@ -162,4 +227,15 @@ if __name__ == "__main__":
         plt.show()
 
 
+        
+    #Plot 100 symbols
+        x = np.arange(1,100)
+        plt.plot(x,y[151:250])
+        
 
+    #Same plot with noise
+        print(np.average(y))
+        noise = np.random.normal(0,0.005,len(y))
+        ns_data = [noise[a]+y[a] for a in range(len(y))]
+        plt.plot(x,ns_data[151:250],'r')
+        plt.show()
