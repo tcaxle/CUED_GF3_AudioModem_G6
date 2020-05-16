@@ -79,7 +79,7 @@ print('Length:', len(block_data))
 
 ## 4) Inverse FFT
 def IFFT(mapped_data,N):
-    return list(np.fft.ifft(mapped_data,N))
+    return list(np.fft.iff t(mapped_data,N))
 
 ifft_data = [IFFT(block,1024) for block in block_data]
 
