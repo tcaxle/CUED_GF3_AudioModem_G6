@@ -1,10 +1,8 @@
-
 import numpy as np
 from scipy.io.wavfile import read
 import matplotlib.pyplot as plt
 
 PLOTTING = True
-
 
 ## 1) Convert from floats to binary string
 ## NB: wav data bounded between -1 and 1
@@ -16,7 +14,7 @@ def float_to_bin(data):
     ----------
     data : ndarray,list
         Imported wav file (int16), written data,etc
-    
+
     Returns
     -------
     LIST
@@ -38,7 +36,7 @@ def float_to_bin(data):
 ## 2) Map data to constellation symbols
 
 def mapping(bit_string,const_length=2):
-    '''
+    """
     Parameters
     ----------
     bit_string : LIST
@@ -47,20 +45,19 @@ def mapping(bit_string,const_length=2):
         Length of constellations. Must be a power of 2.
         Other lengths besides 2 not implemented here.
         The default is 2.
-        
+
     Returns
     -------
     mapped_data : LIST
         List containing mapped constellation symbols in QPSK using
         Gray Mapping
+    """
 
-    '''
-    
     const_map = {
-        "00": complex(+1, +1)/np.sqrt(2),
-        "01": complex(-1, +1)/np.sqrt(2),
-        "11": complex(-1, -1)/np.sqrt(2),
-        "10": complex(+1, -1)/np.sqrt(2),
+        "00": complex(+1, +1) / np.sqrt(2),
+        "01": complex(-1, +1) / np.sqrt(2),
+        "11": complex(-1, -1) / np.sqrt(2),
+        "10": complex(+1, -1) / np.sqrt(2),
     }
 
     #First Test that the constellation length for modulation is valid
@@ -76,7 +73,6 @@ def mapping(bit_string,const_length=2):
     mapped_data = [const_map[values] for values in split_data]
 
     return mapped_data
-
 
 ## 4) Split into blocks with given block_length, IFFT and then add given cyclic prefix
 
@@ -98,28 +94,27 @@ def organise(data, block_length = 1024, cp = 512):
     block_data : LIST of LISTS
         First, the data is split into blocks of a defined length.
         Then, in each block, the cyclic prefix is prepended.
-        block_data is the returned list containing the output of 
+        block_data is the returned list containing the output of
         the above operations.
     """
-    
+
     #Divides into blocks of length "block_length"
-    block_data = [data[i * block_length:(i + 1) * block_length] for i in range((len(data) + block_length - 1) // block_length )]
+    block_data = [data[i : i + block_length] for i in range(0, len(data), block_length)]
 
     #Does the IFFT on each block in the data
     ifft_data = [list(np.fft.ifft(block,block_length)) for block in block_data]
 
     #Adds cyclic prefixes
-    block_data = [np.hstack([block[-cp:],block]) for block in ifft_data] 
+    block_data = [np.hstack([block[-cp:],block]) for block in ifft_data]
 
     ### The above line does what the following commented code does, but in one line
     ### The code below is kept for ease of reading/understanding
-    
+
     # for block in ifft_data:
     #     cyc = block[-cp:]
     #     block = np.hstack([cyc,block])
-        
+
     return block_data
-   
 
 ### 5) Digital to Analog converter, acts as an interpolating filter
 ###    using a sinc function as p(t)
@@ -129,7 +124,7 @@ def DAC(pref_data,sample_rate):
     Parameters
     ----------
     pref_data : LIST
-        Data that's already been through IFFT 
+        Data that's already been through IFFT
         and has CP prepended in each block
     sample_rate : INT
         Sample rate of the data
@@ -148,9 +143,7 @@ def DAC(pref_data,sample_rate):
 
     carrier_sinc = [complex(it) for it in carrier_sinc]
 
-    return [np.convolve(block,carrier_sinc,'same') for block in pref_data]   
-
-
+    return [np.convolve(block,carrier_sinc,'same') for block in pref_data]
 
 # 6) Modulate Data with carrier
 # Upconvert to obtain the passband waveform
@@ -171,7 +164,6 @@ def modulate(dac_data,carrier_frequency,sample_rate):
     -------
     LIST of LISTS
         Data in blocks after being modulated by a sinc pulse
-
     """
 
     samples = len(dac_data[0])
@@ -184,40 +176,37 @@ def modulate(dac_data,carrier_frequency,sample_rate):
 
     return list(np.real(mod_data))
 
-
-
-
 if __name__ == "__main__":
-    
-# Importing an example wave data set to experiment
+
+    # Importing an example wave data set to experiment
 
     sample_frequency, data = read('clap.wav', mmap=False)
-    
+
     bin_data = float_to_bin(data)
 
-    mapped_datas = mapping(bin_data) 
-        
+    mapped_datas = mapping(bin_data)
+
     prefix_data = organise(mapped_datas)
 
     dac_data = DAC(prefix_data,44100)
 
     g = modulate(dac_data,88200,44100)
-    
+
     g = [point for block in g for point in block]
-    
+
     #np.savetxt("clap_data.csv", g, delimiter=",")
-        
+
     if PLOTTING:
-        
+
     # Plot prefix_data in the time domain
     # x axis = 0-7.5 seconds
     # y axis = absolute value of prefix data
-        
+
         sample_length = len(data)
         duration = sample_length/16/sample_frequency
         cp_length = len(prefix_data)*len(prefix_data[0])
         cp_duration = cp_length/sample_length*duration
-        
+
         x = np.linspace(0,cp_duration,cp_length)
         y = [dat for prefix in prefix_data for dat in np.abs(prefix)]
         plt.plot(x,y)
@@ -226,12 +215,9 @@ if __name__ == "__main__":
         plt.xlabel('time (s)')
         plt.show()
 
-
-        
     #Plot 100 symbols
         x = np.arange(1,100)
         plt.plot(x,y[151:250])
-        
 
     #Same plot with noise
         print(np.average(y))
