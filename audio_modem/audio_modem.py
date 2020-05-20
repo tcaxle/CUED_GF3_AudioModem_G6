@@ -67,6 +67,7 @@ sounddevice settings
 --------------------
 """
 sd.default.samplerate = SAMPLE_FREQUENCY
+sd.default.channels = 1
 
 def text_to_binary(input_file="input.txt"):
     """
@@ -273,29 +274,77 @@ def output(input_data, save_to_file=False, suppress_audio=False):
         data.append(block)
     data = silent_padding + [datum for block in data for datum in block] + silent_padding
     # start playback
-    sd.play(data)
+    axs[0].plot(data)
+    data = sd.playrec(data)
     sd.wait()
-    axs[0].plot(data[4410:5466])
+    axs[0].plot(data)
     return data
 
-def accumulate(input_data):
+def recieve(input_data):
+
+    # Accumulator for synchro
     input_data = np.array(input_data)
     input_data *= 1.0 / np.max(np.abs(input_data))
     accumulate = [0]
     for i in range(PREFIXED_SYMBOL_LENGTH, len(input_data)):
         accumulate.append(accumulate[-1] - input_data[i] * input_data[i - PREFIXED_SYMBOL_LENGTH])
-    axs[1].plot(accumulate[4410:5466])
+    axs[1].plot(accumulate)
     diff = np.diff(accumulate)
+
+    # Get peaks
     peaks = []
-    cutoff = 0.5
+    cutoff = 0.2
     for point in diff:
         if point >= cutoff:
             peaks.append(1)
         else:
             peaks.append(0)
-    axs[2].plot(diff[4410:5466])
-    axs[3].plot(peaks[4410:5466])
+    peak_locations = []
+
+    # Find only peaks that are three samples wide
+    for i in range(len(peaks)):
+        if peaks[i] == 1 and peaks[i+2] == 1:
+            peaks[i+1] = 1
+            peak_locations.append(i+1)
+        else:
+            peaks[i] = 0
+    axs[2].plot(diff)
+    axs[3].plot(peaks)
     plt.show()
+
+    # Recover blocks
+    data = []
+    for location in peak_locations:
+        data.append(input_data[location - int(N/2) : location + int(N/2)])
+
+    # FFT
+    data = [np.fft.fft(block, N) for block in data]
+
+    # Extract peritnent info
+    data = [block[1:512] for block in data]
+
+    # Minimum distance map
+    #for block in data:
+    #    plt.scatter(block.real, block.imag)
+    #plt.show()
+    for i in range(len(data)):
+        block = data[i]
+        output = []
+        for datum in block:
+            distances = {abs(datum - value) : key for key, value in CONSTELLATION.items()}
+            min_distance = min(distances)
+            output.append(distances[min_distance])
+        data[i] = output
+
+    # Flatten and join to one string
+    data = [datum for block in data for datum in block]
+    data = "".join(data)
+
+    # Write data
+    data = [data[i : i + 8] for i in range(0, len(data), 8)]
+    data = bytearray([int(i, 2) for i in data])
+    with open("output.txt", "wb") as f:
+        f.write(data)
 
 def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False):
     """
@@ -320,7 +369,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     data = block_ifft(data)
     data = cyclic_prefix(data)
     data = output(data)
-    accumulate(data)
+    recieve(data)
 
 fig, axs = plt.subplots(4)
 transmit()
