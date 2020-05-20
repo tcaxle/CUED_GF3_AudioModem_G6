@@ -297,6 +297,14 @@ def recieve(input_data):
     data *= 1.0 / np.max(np.abs(data))
     data = data.tolist()
 
+    # Add AGWN
+    SNR = 20 # dB
+    SNR = (10) ** (SNR / 20)
+    noise_magnitude = 1 / SNR
+    noise = noise_magnitude * np.random.normal(0, 1, len(data))
+    noise = noise.tolist()
+    data = [datum + noise_datum for datum, noise_datum in zip(data, noise)]
+
     # Correlate
     delayed_data = [0] * N + data[:-N]
     prod = [datum * delayed_datum for datum, delayed_datum in zip(data, delayed_data)]
@@ -411,6 +419,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     data = block_ifft(data)
     data = cyclic_prefix(data)
     data = output(data)
+
     recieve(data)
 
 fig, axs = plt.subplots(4)
