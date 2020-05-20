@@ -247,7 +247,7 @@ def cyclic_prefix(input_data):
     output_data : LIST of LIST of FLOAT
         list of transformed blocks with cyclic prefix
     """
-    return [block[-32:] + block for block in input_data]
+    return [block[-CP:] + block for block in input_data]
 
 def output(input_data, save_to_file=False, suppress_audio=False):
     """
@@ -275,22 +275,60 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     data = silent_padding + [datum for block in data for datum in block] + silent_padding
     # start playback
     axs[0].plot(data)
-    data = sd.playrec(data)
+    sd.play(data)
     sd.wait()
-    axs[0].plot(data)
     return data
 
 def recieve(input_data):
 
-    # Accumulator for synchro
-    input_data = np.array(input_data)
-    input_data *= 1.0 / np.max(np.abs(input_data))
-    accumulate = [0]
-    for i in range(PREFIXED_SYMBOL_LENGTH, len(input_data)):
-        accumulate.append(accumulate[-1] - input_data[i] * input_data[i - PREFIXED_SYMBOL_LENGTH])
-    axs[1].plot(accumulate)
-    diff = np.diff(accumulate)
+    '''
+    data = input_data
+    delayed_data = [0] * N + input_data
+    diff = [datum - delayed_datum for datum, delayed_datum in zip(data, delayed_data)]
+    axs[1].plot(data)
+    axs[2].plot(delayed_data)
+    axs[3].plot(diff)
+    plt.show()
+    '''
 
+    # Preprocess
+    data = input_data
+    data = np.array(data)
+    data *= 1.0 / np.max(np.abs(data))
+    data = data.tolist()
+
+    # Correlate
+    delayed_data = [0] * N + data[:-N]
+    prod = [datum * delayed_datum for datum, delayed_datum in zip(data, delayed_data)]
+    axs[1].plot(prod)
+
+    # Accumulate
+    acc = [0]
+    for datum in prod:
+        acc.append(acc[-1] + datum)
+    axs[2].plot(acc)
+
+    # Differentiate
+    diff = np.diff(acc)
+    axs[3].plot(diff)
+
+    # Extremify
+    for i in range(len(diff)):
+        if diff[i] >= 0:
+            diff[i] = +1
+        else:
+            diff[i] = -1
+    #axs[3].plot(diff)
+
+    # Detect symbols with a moving average window of width CP
+    avg = []
+    for i in range(len(diff[CP:])):
+        avg.append(np.average(diff[i : i + CP]))
+
+    axs[3].plot(avg)
+    plt.show()
+
+    '''
     # Get peaks
     peaks = []
     cutoff = 0.2
@@ -345,6 +383,7 @@ def recieve(input_data):
     data = bytearray([int(i, 2) for i in data])
     with open("output.txt", "wb") as f:
         f.write(data)
+    '''
 
 def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False):
     """
@@ -361,7 +400,10 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
         if set then does not output sound
     """
 
-    data = text_to_binary()
+    #data = text_to_binary()
+    import random
+    random_string = "".join([str(random.randint(0, 1)) for i in range(10000)])
+    data = random_string
     data = binary_to_words(data)
     data = words_to_constellation_values(data)
     data = constellation_values_to_data_blocks(data)
