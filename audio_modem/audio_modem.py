@@ -40,6 +40,7 @@ import numpy as np
 from scipy.io import wavfile
 from matplotlib import pyplot as plt
 import sounddevice as sd
+import random
 
 """
 Constants
@@ -265,14 +266,11 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     """
     # Pad with 0.1s of silence either side of transmitted data
     silent_padding = [0] * int(SAMPLE_FREQUENCY * 0.1)
-    data = []
-    for block in input_data:
-        # convert to 16-bit data
-        block = np.array(block).astype(np.float32)
-        # Normalise to 16-bit range
-        block *= 32767 / np.max(np.abs(block))
-        data.append(block)
-    data = silent_padding + [datum for block in data for datum in block] + silent_padding
+    data = silent_padding + [datum for block in input_data for datum in block] + silent_padding
+    # convert to 16-bit data
+    data = np.array(data).astype(np.float32)
+    # Normalise to 16-bit range
+    data *= 32767 / np.max(np.abs(data))
     # start playback
     axs[0].plot(data)
     sd.play(data)
@@ -296,6 +294,7 @@ def recieve(input_data):
     data = np.array(data)
     data *= 1.0 / np.max(np.abs(data))
     data = data.tolist()
+    print(data[1])
 
     # Add AGWN
     SNR = 20 # dB
@@ -393,6 +392,24 @@ def recieve(input_data):
         f.write(data)
     '''
 
+def create_preamble():
+    """
+    Creates a preamble of length 2L = N
+    """
+    data = "".join([str(random.randint(0, 1)) for i in range(DATA_BLOCK_LENGTH * WORD_LENGTH)])
+    data = binary_to_words(data)
+    data = words_to_constellation_values(data)
+    data = constellation_values_to_data_blocks(data)
+    data = assemble_block(data)
+    for i in range(len(data[0])):
+        if i % 2 != 0:
+            data[0][i] = 0
+    data = block_ifft(data)
+    data = cyclic_prefix(data)
+    data = data[0]
+    data = [2 * datum for datum in data]
+    return data
+
 def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False):
     """
     Parameters
@@ -409,7 +426,6 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     """
 
     #data = text_to_binary()
-    import random
     random_string = "".join([str(random.randint(0, 1)) for i in range(10000)])
     data = random_string
     data = binary_to_words(data)
@@ -418,6 +434,9 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     data = assemble_block(data)
     data = block_ifft(data)
     data = cyclic_prefix(data)
+    preamble = create_preamble()
+    data = [preamble] + data
+
     data = output(data)
 
     recieve(data)
