@@ -232,8 +232,7 @@ def constellation_values_to_data_blocks(input_data):
     Returns
     -------
     output_data : LIST of LIST of COMPLEX
-        splits data into blocks of length CONSTELLATION_VALUES_PER_BLOCK
-        Makes up final block to full length with FILLER_VALUE
+        splits data into blocks of length CONSTELLATION_VALUES_PER_BLOCK and adds pilot symbols
     """
 
     # Split into blocks
@@ -348,6 +347,8 @@ def recieve(input_data):
     plt.show()
     '''
 
+    axs[0].plot(input_data)
+
     data = input_data
     data = np.array(data).astype(np.float32)
     data *= 1.0 / np.max(np.abs(data))
@@ -381,16 +382,43 @@ def recieve(input_data):
     for i in range(len(diff[CP:])):
         avg.append(np.average(diff[i : i + CP]))
     axs[3].plot(avg)
-    plt.show()
 
+    # Detect most common location of cyclic prefix within the symbol
     chunks = [avg[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(avg), PREFIXED_SYMBOL_LENGTH)]
     chunks[-1] += [0] * (PREFIXED_SYMBOL_LENGTH - len(chunks[-1]))
     scores = [0] * PREFIXED_SYMBOL_LENGTH
-    threshold = 0.98
+    threshold = 0.5
     for i in range(len(scores)):
         for chunk in chunks:
             if chunk[i] >= threshold:
                 scores[i] += 1
+    max_score= max(scores)
+    mode_prefix = 0
+    for i in range(len(scores)):
+        if scores[i] == max_score:
+            mode_prefix = i
+            break
+    # Create windows
+    windows = [0] * len(data)
+    for i in range(len(windows)):
+        if i % PREFIXED_SYMBOL_LENGTH == 0:
+            windows[i] = 32768
+            try:
+                windows[i + CP] = 16384
+            except:
+                pass
+            try:
+                windows[i - CP] = 16384
+            except:
+                pass
+    # Shift by mode_prefix and cyclic prefix length
+    shift = mode_prefix + CP -1
+    synchronised_windows = [0] * shift + windows[:-shift]
+    axs[0].plot(windows)
+    axs[0].plot(synchronised_windows)
+
+    plt.show()
+
     plt.plot(scores)
     plt.show()
 
@@ -480,6 +508,11 @@ def create_preamble():
     data = [2 * datum for datum in data]
     return data
 
+def add_noise(input_data, amplitude):
+    scale = max(input_data)
+    noise = scale * amplitude * np.random.normal(0, 1, len(input_data))
+    return [datum + noise_datum for datum, noise_datum in zip(input_data, noise)]
+
 def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False):
     """
     Parameters
@@ -508,6 +541,8 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     # data = [preamble] + data
     # https://audio-modem.slack.com/archives/C013K2HGVL3
     data = output(data, suppress_audio=True)
+
+    data = add_noise(data, 0.1)
 
     recieve(data)
 
