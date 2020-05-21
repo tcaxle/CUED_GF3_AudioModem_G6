@@ -402,7 +402,9 @@ def recieve(input_data):
     windows = [0] * len(data)
     for i in range(len(windows)):
         if i % PREFIXED_SYMBOL_LENGTH == 0:
+            # Place marker for window starts
             windows[i] = 32768
+            # Put marker for cyclic prefixes
             try:
                 windows[i + CP] = 16384
             except:
@@ -414,12 +416,29 @@ def recieve(input_data):
     # Shift by mode_prefix and cyclic prefix length
     shift = mode_prefix + CP -1
     synchronised_windows = [0] * shift + windows[:-shift]
+    synchronised_windows = [-datum for datum in synchronised_windows]
     axs[0].plot(windows)
     axs[0].plot(synchronised_windows)
 
     plt.show()
 
-    plt.plot(scores)
+    # Shift data to synchronise
+    data = data[shift:]
+    data = [data[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(data), PREFIXED_SYMBOL_LENGTH)]
+
+    # Remove all data blocks whose power is less than the normalised cutoff power
+    power_list = [np.sqrt(np.mean(np.square(block))) for block in data]
+    power_list = np.array(power_list)
+    power_list = power_list - np.min(power_list)
+    power_list *= 1.0 / np.max(power_list)
+    power_list = power_list.tolist()
+    cutoff = 0.5
+    power_list = [0 if datum < cutoff else 1 for datum in power_list]
+    data = [data[i] for i in range(len(data)) if power_list[i] == 1]
+
+    test_block = np.fft.fft(data[0][CP:], n=N)
+    test_block = test_block[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK]
+    plt.scatter(test_block.real, test_block.imag)
     plt.show()
 
     ###DO CHANNEL ESTIMATION HERE?##
@@ -542,7 +561,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     # https://audio-modem.slack.com/archives/C013K2HGVL3
     data = output(data, suppress_audio=True)
 
-    data = add_noise(data, 0.1)
+    data = add_noise(data, 0.01)
 
     recieve(data)
 
