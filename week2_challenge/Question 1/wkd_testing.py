@@ -63,6 +63,7 @@ def sweep(duration=1, f_start=100, f_end=8000, sample_rate=48000, channels=1):
     return f_sweep, sample_rate, samples
     
 def recieve(input_data, known_data):
+    
     data = input_data
     data = np.array(data).astype(np.float64)
     data *= 1.0 / np.max(np.abs(data))
@@ -82,8 +83,6 @@ def recieve(input_data, known_data):
     
     #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
     lag_sample = np.argmax(corr)
-    print(lag_sample)
-    print(len(data))
     
     lag = []
     for i,datum in enumerate(data):
@@ -96,65 +95,94 @@ def recieve(input_data, known_data):
         print('data is ' + str(np.round(lag,3)) + ' behind the sample')
 
  
-    plt.figure()
-    plt.plot(corr)
-    plt.plot(lag)
-    plt.title('Lag: ' + str(lag/sample_rate) + ' s or ' + str(lag) + ' samples')
-    plt.xlabel('Lag')
-    plt.ylabel('Correlation coeff')
-    plt.xlim(0,lag+10000)
-    plt.show()
+    # plt.figure()
+    # plt.plot(corr)
+    # plt.plot(lag)
+    # plt.title('Lag: ' + str(lag/sample_rate) + ' s or ' + str(lag) + ' samples')
+    # plt.xlabel('Lag')
+    # plt.ylabel('Correlation coeff')
+    # plt.xlim(0,lag+10000)
+    # plt.show()
     
     
     data = data[lag+sample_rate:] #remove everything up to the end of the chirp
     
-    plt.plot(data)
-    plt.xlim(0,120000)
+    # plt.plot(data)
+    # plt.xlim(0,120000)
     print(data[sample_rate])
     #return lag, dd_data, dd_sample 
     N = 4096
     CYCLIC_PREFIX = 0 
     block_length = N + CYCLIC_PREFIX
-    block_number = int(len(data) / block_length)
+    block_number = int(np.ceil(len(data) / block_length))
     
     # 1) Split into blocks of 4096
-    data = np.array_split(data, block_number)
     
     # 3) DFT N = 4096
     demodulated_data = np.fft.fft(data, N)
+    demodulated_data = np.array_split(demodulated_data,  block_number)
+
+    #freq_known_data = np.fft.fft(known_data,N)
+    #half_first_block = demodulated_data[1:2048]
+    
+    #freq_known_data = np.fft.fft(known_data,N)
+    
+    #channel_resp = demodulated_data[0]/freq_known_data
+    
+    # plt.plot(channel_resp)
+    # plt.show()
     
     # # 4) Convolve with inverse FIR channel
     # # 4.1) Invert the channel
-    # inverse_channel = np.fft.fft(channel, N)
-    # # 4.2) Convolve
-    # unconvolved_data = [np.divide(block, inverse_channel) for block in demodulated_data]
-    # # 4.3) Discard last half of each block
-    # unconvolved_data = [block[1:512] for block in unconvolved_data]
+    #inverse_channel = np.fft.fft(channel_resp, N)
     
-    # # 5) Decide on optimal decoder for constellations
-    # # 5.1) Define constellation
-    # constellation = {
-    #     complex(+1, +1): (0, 0),
-    #     complex(-1, +1): (0, 1),
-    #     complex(-1, -1): (1, 1),
-    #     complex(+1, -1): (1, 0),
-    # }
-    # # 5.2) Minimum distance decode and map to bits
-    # mapped_data = []
+    # # 4.2) Convolve
+    #unconvolved_data = [np.divide(block, channel_resp) for block in demodulated_data]
+    # # 4.3) Discard last half of each block
+    unconvolved_data = [block[1:2048] for block in demodulated_data]
+    
+    # 5) Decide on optimal decoder for constellations
+    # 5.1) Define constellation
+    constellation = {
+        complex(+1, +1)/np.sqrt(2): (0, 0),
+        complex(-1, +1)/np.sqrt(2): (0, 1),
+        complex(-1, -1)/np.sqrt(2): (1, 1),
+        complex(+1, -1)/np.sqrt(2): (1, 0),
+    }
+    # 5.2) Minimum distance decode and map to bits
     # for block in unconvolved_data:
-    #     minimum_distance_block = []
-    #     for data_symbol in block:
-    #         # Get distance to all symbols in constellation
-    #         distances = {abs(data_symbol - constellation_symbol): constellation_symbol for constellation_symbol in constellation.keys()}
-    #         # Get minimum distance
-    #         minimum_distance = min(distances.keys())
-    #         # Find symbol matching minimum distance
-    #         symbol = distances[minimum_distance]
-    #         # Append symbol data to mapped data array
-    #         mapped_data.append(constellation[symbol][0])
-    #         mapped_data.append(constellation[symbol][1])
+    #     plt.scatter(block.real, block.imag)
+    # plt.show()
+    mapped_data = []
+    for block in unconvolved_data:
+        for data_symbol in block:
+        # Get distance to all symbols in constellation
+            distances = {abs(data_symbol - constellation_symbol): constellation_symbol for constellation_symbol in constellation.keys()}
+        # Get minimum distance
+            minimum_distance = min(distances.keys())
+        # Find symbol matching minimum distance
+            symbol = distances[minimum_distance]
+        # Append symbol data to mapped data array
+            mapped_data.append(constellation[symbol][0])
+            mapped_data.append(constellation[symbol][1])
 
     
+    output_string = ""
+    print(len(mapped_data))
+    for bit in mapped_data:
+        output_string += str(bit)
+        output_data = [output_string[i : i + 8] for i in range(0, len(output_string), 8)]
+    print(output_data[:50])
+    # 6.2) Convert ints to bytearray
+    output_data = bytearray([int(i, 2) for i in output_data])
+# 6.3 Remove first 18 items
+    #output_data = output_data[18:]
+    #del output_data[0:18]
+# 6.4) Write output file
+    with open("output.txt", "w") as f:
+        for i in mapped_data:
+            f.write(str(i))
+
     '''
     # Get peaks
     peaks = []
@@ -224,6 +252,7 @@ chirp, data_rate, samples = sweep()
 known_ofdm_symbols = np.genfromtxt('a7r56tu_knownseq.csv', delimiter=',')
 
 known_ofdm_symbols = [int(i) for i in known_ofdm_symbols]
+
 
 
 PREFIXED_SYMBOL_LENGTH = len(known_ofdm_symbols)
