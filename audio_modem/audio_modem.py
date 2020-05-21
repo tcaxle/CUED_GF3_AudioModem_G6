@@ -204,6 +204,25 @@ def conjugate_block(input_data):
 
     # Reverse the list
     return output_data[::-1]
+
+
+def assemble_block(input_data):
+    """
+    Parameters
+    ----------
+    input_data : LIST of LIST of COMPLEX
+        list of data blocks to be assembled ready to IDFT
+
+    Returns
+    -------
+    output_data : LIST of LIST of COMPLEX
+        list of blocks assembled ready for IDFT
+    """
+    padding = [0] * PADDING
+    dc = [0]
+    mid = [0]
+    return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
+
 def add_pilot_symbols(input_data):
     """
     
@@ -224,30 +243,16 @@ def add_pilot_symbols(input_data):
     ### can be anything complex. The white papers used (1, 1j)
     ### which is part of QPSK because it seems to work better if the pilots
     ### have the same magnitude as the data.
-    PILOT = complex(1,1j)
+    PILOT = complex(1,1j) / np.sqrt(2)
     
     ### 2) Replace every Pth carrier in the OFDM symbols by the Pilot symbol
     ### White paper used P=8, i.e. replaced symbols 1,9,17,etc
     
-    "TO DO"
-    pass
-
-def assemble_block(input_data):
-    """
-    Parameters
-    ----------
-    input_data : LIST of LIST of COMPLEX
-        list of data blocks to be assembled ready to IDFT
-
-    Returns
-    -------
-    output_data : LIST of LIST of COMPLEX
-        list of blocks assembled ready for IDFT
-    """
-    padding = [0] * PADDING
-    dc = [0]
-    mid = [0]
-    return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
+ 
+    ### I am ignoring the first frequency in enumerate(block) so we start at 1, is this right?
+    
+    p = 8
+    return [[PILOT if i % p == 1 else x for i, x in enumerate(block[1:])] for block in input_data]
 
 def block_ifft(input_data):
     """
@@ -472,14 +477,24 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     data = words_to_constellation_values(data)
     data = constellation_values_to_data_blocks(data)
     data = assemble_block(data)
+    data = add_pilot_symbols(data)
+   
+    #### Pilot testing
+    for i in range(len((data))):
+        for j in range(len(data[i])):
+            if data[i][j]*np.sqrt(2) == complex(1,1j):
+                if i < 4:
+                    print(i,j)
+    ####
+   
     data = block_ifft(data)
     data = cyclic_prefix(data)
-    preamble = create_preamble()
-    data = [preamble] + data
-https://audio-modem.slack.com/archives/C013K2HGVL3
-    data = output(data)
+    # preamble = create_preamble()
+    # data = [preamble] + data
+    # #https://audio-modem.slack.com/archives/C013K2HGVL3
+    # data = output(data)
 
-    recieve(data)
+    # recieve(data)
 
 fig, axs = plt.subplots(4)
 transmit()
