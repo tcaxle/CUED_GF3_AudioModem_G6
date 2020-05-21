@@ -204,6 +204,33 @@ def conjugate_block(input_data):
 
     # Reverse the list
     return output_data[::-1]
+def add_pilot_symbols(input_data):
+    """
+    
+
+    Parameters
+    ----------
+    input_data : LIST of COMPLEX
+       list of complex valued data, after it's 
+        been through the conjugation function
+
+    Returns
+    -------
+    output_data: LIST of COMPLEX
+        list of complex valued data, pilot symbols
+        introduced for channel estimation.
+    """
+    ### 1) Need a known constellation symbol. Doesn't have to be QPSK,
+    ### can be anything complex. The white papers used (1, 1j)
+    ### which is part of QPSK because it seems to work better if the pilots
+    ### have the same magnitude as the data.
+    PILOT = complex(1,1j)
+    
+    ### 2) Replace every Pth carrier in the OFDM symbols by the Pilot symbol
+    ### White paper used P=8, i.e. replaced symbols 1,9,17,etc
+    
+    "TO DO"
+    pass
 
 def assemble_block(input_data):
     """
@@ -303,6 +330,7 @@ def recieve(input_data):
     noise = noise_magnitude * np.random.normal(0, 1, len(data))
     noise = noise.tolist()
     data = [datum + noise_datum for datum, noise_datum in zip(data, noise)]
+    
 
     # Correlate
     delayed_data = [0] * N + data[:-N]
@@ -334,6 +362,18 @@ def recieve(input_data):
 
     axs[3].plot(avg)
     plt.show()
+    
+    
+    ###DO CHANNEL ESTIMATION HERE?##
+    ## 1) Extract pilots from the signal as we know their positions
+    ## 2) Average of each eqalised pilot over all OFDM symbols received
+    ## 3) Interpolate over the data for channel estimation::
+    ##      a) Could do interpolations between real and img data separately
+    ##      b) Or could do interpolations between magnitude and phase separately
+    ## 4) Each of the data carriers within each OFDM symbol is then equalised at its 
+    ##    corresponding frequency using the complex interpolated channel estimate. 
+    ##    Since the channel estimate is complex we can equalise both in magnitude and phase.
+    """ Don't get step four """
 
     '''
     # Get peaks
@@ -436,7 +476,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     data = cyclic_prefix(data)
     preamble = create_preamble()
     data = [preamble] + data
-
+https://audio-modem.slack.com/archives/C013K2HGVL3
     data = output(data)
 
     recieve(data)
