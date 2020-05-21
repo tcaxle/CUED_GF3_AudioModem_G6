@@ -3,7 +3,7 @@ import scipy.signal as sg
 from scipy.io import wavfile
 from matplotlib import pyplot as plt
 
-fig, axs = plt.subplots(4)
+#fig, axs = plt.subplots(4)
 N = 4096
 CP = 0
 
@@ -22,23 +22,23 @@ def wav_to_binary(input_file="input.wav"):
 
     # Ooen the file and read the data
     output_data = wavfile.read(input_file)[1]
-
+    return output_data
     #Normalise Data
-    norm_data = [i/32767 for i in output_data]
+    #norm_data = [i/32767 for i in output_data]
 
     # Add 1 to make all values positive
     # Then scale by 2^16 / 2 = 2^15
     # Then convert to integer (rounds down)
     # Now we have 32 bit integers
 
-    norm_data = [int((datum + 1) * np.power(2, 15)) for datum in norm_data]
+    #norm_data = [int((datum + 1) * np.power(2, 15)) for datum in norm_data]
 
     # Now convert to binary strings
     # Use zfill to make sure each string is 16 bits long
     # (By default python would not include redundant zeroes)
     # (And that makes it super hard to decode)
     # And use "".join() to make the whole thing one big string
-    return "".join(format(datum, "b").zfill(16) for datum in norm_data)
+    #return "".join(format(datum, "b").zfill(16) for datum in norm_data)
  
 def sweep(duration=1, f_start=100, f_end=8000, sample_rate=48000, channels=1):
     """
@@ -62,64 +62,99 @@ def sweep(duration=1, f_start=100, f_end=8000, sample_rate=48000, channels=1):
     # sd.wait()
     return f_sweep, sample_rate, samples
     
-def recieve(input_data, chirp):
-   
+def recieve(input_data, known_data):
     data = input_data
-    data = np.array(data).astype(np.int16) 
-    #data *= 1.0 / np.max(np.abs(data))
+    data = np.array(data).astype(np.float64)
+    data *= 1.0 / np.max(np.abs(data))
     data = data.tolist()
+    
+    dd_sample = np.gradient(np.gradient(known_data))
+    dd_data = np.gradient(np.gradient(data))
+    sample_rate = 48000
+    #Correlation between sample and data, normalised
+    corr = sg.correlate(dd_data, dd_sample, mode='full')
+    
+    #This normalised the corr, but it gives errors
+    #corr = corr / np.sqrt(sg.correlate(dd_sample, dd_sample, mode='full') * sg.correlate(dd_data, dd_data, mode='full'))
+    
+    #Create and shift x axis from -0.5 to 0.5
+    #delay_arr = np.linspace(-0.5*len(known_data)/sample_rate,0.5*len(known_data)/sample_rate,len(known_data))
+    
+    #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
+    lag_sample = np.argmax(corr)
+    print(lag_sample)
+    print(len(data))
+    
+    lag = []
+    for i,datum in enumerate(data):
+        if i == lag_sample:
+            lag = i
+    
+    if lag < 0:
+        print('data is ' + str(np.round(abs(lag),3)) + 's ahead of the sample')
+    else:
+        print('data is ' + str(np.round(lag,3)) + ' behind the sample')
 
-    # Correlate
-    prod = [datum * delayed_datum for datum, delayed_datum in zip(chirp,data)]
-    axs[1].plot(prod)
-
-    # Accumulate
-    acc = [0]
-    for datum in prod:
-        acc.append(acc[-1] + datum)
-    axs[2].plot(acc)
-
-    # Differentiate
-    diff = np.diff(acc)
-    axs[3].plot(diff)
-
-    # Extremify
-    for i in range(len(diff)):
-        if diff[i] >= 0:
-            diff[i] = +1
-        else:
-            diff[i] = -1
-    axs[3].plot(diff)
-
-    # Detect symbols with a moving average window of width CP
-    avg = []
-    for i in range(len(diff[CP:])):
-        avg.append(np.average(diff[i : i + CP]))
-    axs[3].plot(avg)
+ 
+    plt.figure()
+    plt.plot(corr)
+    plt.plot(lag)
+    plt.title('Lag: ' + str(lag/sample_rate) + ' s or ' + str(lag) + ' samples')
+    plt.xlabel('Lag')
+    plt.ylabel('Correlation coeff')
+    plt.xlim(0,lag+10000)
     plt.show()
+    
+    
+    data = data[lag+sample_rate:] #remove everything up to the end of the chirp
+    
+    plt.plot(data)
+    plt.xlim(0,120000)
+    print(data[sample_rate])
+    #return lag, dd_data, dd_sample 
+    N = 4096
+    CYCLIC_PREFIX = 0 
+    block_length = N + CYCLIC_PREFIX
+    block_number = int(len(data) / block_length)
+    
+    # 1) Split into blocks of 4096
+    data = np.array_split(data, block_number)
+    
+    # 3) DFT N = 4096
+    demodulated_data = np.fft.fft(data, N)
+    
+    # # 4) Convolve with inverse FIR channel
+    # # 4.1) Invert the channel
+    # inverse_channel = np.fft.fft(channel, N)
+    # # 4.2) Convolve
+    # unconvolved_data = [np.divide(block, inverse_channel) for block in demodulated_data]
+    # # 4.3) Discard last half of each block
+    # unconvolved_data = [block[1:512] for block in unconvolved_data]
+    
+    # # 5) Decide on optimal decoder for constellations
+    # # 5.1) Define constellation
+    # constellation = {
+    #     complex(+1, +1): (0, 0),
+    #     complex(-1, +1): (0, 1),
+    #     complex(-1, -1): (1, 1),
+    #     complex(+1, -1): (1, 0),
+    # }
+    # # 5.2) Minimum distance decode and map to bits
+    # mapped_data = []
+    # for block in unconvolved_data:
+    #     minimum_distance_block = []
+    #     for data_symbol in block:
+    #         # Get distance to all symbols in constellation
+    #         distances = {abs(data_symbol - constellation_symbol): constellation_symbol for constellation_symbol in constellation.keys()}
+    #         # Get minimum distance
+    #         minimum_distance = min(distances.keys())
+    #         # Find symbol matching minimum distance
+    #         symbol = distances[minimum_distance]
+    #         # Append symbol data to mapped data array
+    #         mapped_data.append(constellation[symbol][0])
+    #         mapped_data.append(constellation[symbol][1])
 
-    chunks = [avg[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(avg), PREFIXED_SYMBOL_LENGTH)]
-    chunks[-1] += [0] * (PREFIXED_SYMBOL_LENGTH - len(chunks[-1]))
-    scores = [0] * PREFIXED_SYMBOL_LENGTH
-    threshold = 0.98
-    for i in range(len(scores)):
-        for chunk in chunks:
-            if chunk[i] >= threshold:
-                scores[i] += 1
-    plt.plot(scores)
-    plt.show()
-    return 0 
-    ###DO CHANNEL ESTIMATION HERE?##
-    ## 1) Extract pilots from the signal as we know their positions
-    ## 2) Average of each eqalised pilot over all OFDM symbols received
-    ## 3) Interpolate over the data for channel estimation::
-    ##      a) Could do interpolations between real and img data separately
-    ##      b) Or could do interpolations between magnitude and phase separately
-    ## 4) Each of the data carriers within each OFDM symbol is then equalised at its
-    ##    corresponding frequency using the complex interpolated channel estimate.
-    ##    Since the channel estimate is complex we can equalise both in magnitude and phase.
-    """ Don't get step four """
-
+    
     '''
     # Get peaks
     peaks = []
@@ -184,11 +219,13 @@ def recieve(input_data, chirp):
 
 input_data = wav_to_binary('a7r56tu_received.wav')
 
-chirp, data_rate, PREFIXED_SYMBOL_LENGTH = sweep()
+chirp, data_rate, samples = sweep()
 
 known_ofdm_symbols = np.genfromtxt('a7r56tu_knownseq.csv', delimiter=',')
 
 known_ofdm_symbols = [int(i) for i in known_ofdm_symbols]
 
-recieve(input_data,chirp)
 
+PREFIXED_SYMBOL_LENGTH = len(known_ofdm_symbols)
+
+recieve(input_data,chirp)
