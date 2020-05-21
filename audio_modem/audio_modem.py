@@ -59,6 +59,8 @@ CONSTELLATION = {
 } # Binary words mapped to complex values
 SAMPLE_FREQUENCY = 44100 # Sampling rate of system
 FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
+PILOT_FREQUENCY = 8 # Frequency of symbols to be pilot symbols
+PILOT_SYMBOL = complex(1, 1) / np.sqrt(2) # Value of pilot symbol
 # Calculated:
 DATA_BLOCK_LENGTH = int((N - 2 - 4 * PADDING) / 2)
 PREFIXED_SYMBOL_LENGTH = N + CP
@@ -178,11 +180,19 @@ def constellation_values_to_data_blocks(input_data):
         splits data into blocks of length DATA_BLOCK_LENGTH
         Makes up final block to full length with FILLER_VALUE
     """
-    # Split data into blocks, length = DATA_BLOCK_LENGTH
-    output_data = [input_data[i : i + DATA_BLOCK_LENGTH] for i in range(0, len(input_data), DATA_BLOCK_LENGTH)]
 
-    # Add filler to final block
-    output_data[-1] += [FILLER_VALUE] * (DATA_BLOCK_LENGTH - len(output_data[-1]))
+    output_data = []
+    while input_data:
+        block = [None] * DATA_BLOCK_LENGTH
+        for i in range(len(block)):
+            if i % PILOT_FREQUENCY == 0:
+                block[i] = PILOT_SYMBOL
+            else:
+                if input_data:
+                    block[i] = input_data.pop(0)
+                else:
+                    block[i] = FILLER_VALUE
+        output_data.append(block)
 
     return output_data
 
@@ -199,12 +209,9 @@ def conjugate_block(input_data):
         list of conjugates of input data
         NB: list is in reverse order of input data (mirrored)
     """
-    # Find conjugates
-    output_data = [np.conj(datum) for datum in input_data]
 
-    # Reverse the list
-    return output_data[::-1]
-
+    # Find conjugates of reversed list
+    return [np.conj(datum) for datum in input_data[::-1]]
 
 def assemble_block(input_data):
     """
@@ -222,37 +229,6 @@ def assemble_block(input_data):
     dc = [0]
     mid = [0]
     return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
-
-def add_pilot_symbols(input_data):
-    """
-    
-
-    Parameters
-    ----------
-    input_data : LIST of COMPLEX
-       list of complex valued data, after it's 
-        been through the conjugation function
-
-    Returns
-    -------
-    output_data: LIST of COMPLEX
-        list of complex valued data, pilot symbols
-        introduced for channel estimation.
-    """
-    ### 1) Need a known constellation symbol. Doesn't have to be QPSK,
-    ### can be anything complex. The white papers used (1, 1j)
-    ### which is part of QPSK because it seems to work better if the pilots
-    ### have the same magnitude as the data.
-    PILOT = complex(1,1j) / np.sqrt(2)
-    
-    ### 2) Replace every Pth carrier in the OFDM symbols by the Pilot symbol
-    ### White paper used P=8, i.e. replaced symbols 1,9,17,etc
-    
- 
-    ### I am ignoring the first frequency in enumerate(block) so we start at 1, is this right?
-    
-    p = 8
-    return [[PILOT if i % p == 1 else x for i, x in enumerate(block[1:])] for block in input_data]
 
 def block_ifft(input_data):
     """
@@ -305,12 +281,12 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     data *= 32767 / np.max(np.abs(data))
     # start playback
     axs[0].plot(data)
-    sd.play(data)
-    sd.wait()
+    if not suppress_audio:
+        sd.play(data)
+        sd.wait()
     return data
 
 def recieve(input_data):
-
     '''
     data = input_data
     delayed_data = [0] * N + input_data
@@ -321,21 +297,10 @@ def recieve(input_data):
     plt.show()
     '''
 
-    # Preprocess
     data = input_data
-    data = np.array(data)
+    data = np.array(data).astype(np.float32)
     data *= 1.0 / np.max(np.abs(data))
     data = data.tolist()
-    print(data[1])
-
-    # Add AGWN
-    SNR = 20 # dB
-    SNR = (10) ** (SNR / 20)
-    noise_magnitude = 1 / SNR
-    noise = noise_magnitude * np.random.normal(0, 1, len(data))
-    noise = noise.tolist()
-    data = [datum + noise_datum for datum, noise_datum in zip(data, noise)]
-    
 
     # Correlate
     delayed_data = [0] * N + data[:-N]
@@ -364,19 +329,28 @@ def recieve(input_data):
     avg = []
     for i in range(len(diff[CP:])):
         avg.append(np.average(diff[i : i + CP]))
-
     axs[3].plot(avg)
     plt.show()
-    
-    
+
+    chunks = [avg[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(avg), PREFIXED_SYMBOL_LENGTH)]
+    chunks[-1] += [0] * (PREFIXED_SYMBOL_LENGTH - len(chunks[-1]))
+    scores = [0] * PREFIXED_SYMBOL_LENGTH
+    threshold = 0.98
+    for i in range(len(scores)):
+        for chunk in chunks:
+            if chunk[i] >= threshold:
+                scores[i] += 1
+    plt.plot(scores)
+    plt.show()
+
     ###DO CHANNEL ESTIMATION HERE?##
     ## 1) Extract pilots from the signal as we know their positions
     ## 2) Average of each eqalised pilot over all OFDM symbols received
     ## 3) Interpolate over the data for channel estimation::
     ##      a) Could do interpolations between real and img data separately
     ##      b) Or could do interpolations between magnitude and phase separately
-    ## 4) Each of the data carriers within each OFDM symbol is then equalised at its 
-    ##    corresponding frequency using the complex interpolated channel estimate. 
+    ## 4) Each of the data carriers within each OFDM symbol is then equalised at its
+    ##    corresponding frequency using the complex interpolated channel estimate.
     ##    Since the channel estimate is complex we can equalise both in magnitude and phase.
     """ Don't get step four """
 
@@ -477,24 +451,14 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     data = words_to_constellation_values(data)
     data = constellation_values_to_data_blocks(data)
     data = assemble_block(data)
-    data = add_pilot_symbols(data)
-   
-    #### Pilot testing
-    for i in range(len((data))):
-        for j in range(len(data[i])):
-            if data[i][j]*np.sqrt(2) == complex(1,1j):
-                if i < 4:
-                    print(i,j)
-    ####
-   
     data = block_ifft(data)
     data = cyclic_prefix(data)
     # preamble = create_preamble()
     # data = [preamble] + data
-    # #https://audio-modem.slack.com/archives/C013K2HGVL3
-    # data = output(data)
+    # https://audio-modem.slack.com/archives/C013K2HGVL3
+    data = output(data, suppress_audio=True)
 
-    # recieve(data)
+    recieve(data)
 
 fig, axs = plt.subplots(4)
 transmit()
