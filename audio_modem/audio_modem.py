@@ -50,7 +50,7 @@ Constants
 N = 1024 # IDFT length
 PADDING = 0 # Frequency padding within block
 CP = 32 # Length of cyclic prefix
-WORD_LENGTH = 2 # Length of binary word per constellation symbol
+BITS_PER_CONSTELLATION_VALUE = 2 # Length of binary word per constellation symbol
 CONSTELLATION = {
     "00" : complex(+1, +1) / np.sqrt(2),
     "01" : complex(-1, +1) / np.sqrt(2),
@@ -62,8 +62,10 @@ FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
 PILOT_FREQUENCY = 8 # Frequency of symbols to be pilot symbols
 PILOT_SYMBOL = complex(1, 1) / np.sqrt(2) # Value of pilot symbol
 # Calculated:
-DATA_BLOCK_LENGTH = int((N - 2 - 4 * PADDING) / 2)
 PREFIXED_SYMBOL_LENGTH = N + CP
+CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4 * PADDING) / 2)
+DATA_CONSTELLATION_VALUES_PER_BLOCK = CONSTELLATION_VALUES_PER_BLOCK - int(CONSTELLATION_VALUES_PER_BLOCK / PILOT_FREQUENCY)
+DATA_BITS_PER_BLOCK = DATA_CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE
 
 """
 sounddevice settings
@@ -121,6 +123,59 @@ def wav_to_binary(input_file="input.wav"):
     # And use "".join() to make the whole thing one big string
     return "".join(format(datum, "b").zfill(16) for datum in output_data)
 
+def fill_binary(input_data):
+    """
+    Makes sure that the length of the binary string will be an exact number of data blocks
+
+    Parameters
+    ----------
+    input_data : STRING
+        string of binary data
+    Returns
+    -------
+    output_data : STRING
+        string of binary data
+    """
+    output_data = [input_data[i : i + DATA_BITS_PER_BLOCK] for i in range(0, len(input_data), DATA_BITS_PER_BLOCK)]
+
+    # Append 0s to data to make it correct length for integer number of constellation values and blocks
+    output_data[-1] += "0" * (DATA_BITS_PER_BLOCK - len(output_data[-1]))
+
+    return "".join(output_data)
+
+def xor_binary_and_key(input_data):
+    """
+    XORs each bit with the key
+
+    Parameters
+    ----------
+    input_data : STRING
+        string of binary data
+    Returns
+    -------
+    output_data : STRING
+        string of binary data
+    """
+    def XOR(a, b):
+        if a == b:
+            return "0"
+        else:
+            return "1"
+
+    # Open the file and read the data
+    with open("key.txt", "r") as f:
+        key = f.read()
+
+    # make data into list of bits
+    output_data = [datum for datum in input_data]
+
+    # XOR the data
+    for i in range(0, len(output_data), DATA_BITS_PER_BLOCK):
+        for j in range(DATA_BITS_PER_BLOCK):
+            output_data[i + j] = XOR(output_data[i + j], key[j])
+
+    return "".join(output_data)
+
 def binary_to_words(input_data):
     """
     Parameters
@@ -131,13 +186,13 @@ def binary_to_words(input_data):
     Returns
     -------
     output_data : LIST of [STRING]
-        list of binary data words of length WORD_LENGTH
+        list of binary data words of length BITS_PER_CONSTELLATION_VALUE
     """
     # Split into word length blocks
-    output_data = [input_data[i : i + WORD_LENGTH] for i in range(0, len(input_data), WORD_LENGTH)]
+    output_data = [input_data[i : i + BITS_PER_CONSTELLATION_VALUE] for i in range(0, len(input_data), BITS_PER_CONSTELLATION_VALUE)]
 
-    # Make up final word to WORD_LENGTH with 0s
-    output_data[-1] += "0" * (WORD_LENGTH - len(output_data[-1]))
+    if len(output_data[-1]) != BITS_PER_CONSTELLATION_VALUE:
+        raise Exception("\n\nNot enough binary data to fill make words!\nFinal word of length {} out of {}!\n".format(len(output_data[-1]), BITS_PER_CONSTELLATION_VALUE))
 
     return output_data
 
@@ -146,7 +201,7 @@ def words_to_constellation_values(input_data):
     Parameters
     ----------
     input_data : LIST of [STRING]
-        list of binary words, length WORD_LENGTH
+        list of binary words, length BITS_PER_CONSTELLATION_VALUE
 
     Returns
     -------
@@ -155,12 +210,12 @@ def words_to_constellation_values(input_data):
     """
     output_data = []
     for word in input_data:
-        if len(word) != WORD_LENGTH:
+        if len(word) != BITS_PER_CONSTELLATION_VALUE:
             # Check word of correct length
-            raise Exception("Constellation words must be of length {}!".format(WORD_LENGTH))
+            raise Exception("\n\nConstellation words must be of length {}!\n".format(BITS_PER_CONSTELLATION_VALUE))
         elif word not in CONSTELLATION.keys():
             # Check word in constellation
-            raise Exception("Invalid constellation word {}!".format(word))
+            raise Exception("\n\nInvalid constellation word {}!\n".format(word))
         else:
             # Append the complex value associated with that word
             output_data.append(CONSTELLATION[word])
@@ -177,22 +232,18 @@ def constellation_values_to_data_blocks(input_data):
     Returns
     -------
     output_data : LIST of LIST of COMPLEX
-        splits data into blocks of length DATA_BLOCK_LENGTH
+        splits data into blocks of length CONSTELLATION_VALUES_PER_BLOCK
         Makes up final block to full length with FILLER_VALUE
     """
 
-    output_data = []
-    while input_data:
-        block = [None] * DATA_BLOCK_LENGTH
-        for i in range(len(block)):
-            if i % PILOT_FREQUENCY == 0:
-                block[i] = PILOT_SYMBOL
-            else:
-                if input_data:
-                    block[i] = input_data.pop(0)
-                else:
-                    block[i] = FILLER_VALUE
-        output_data.append(block)
+    # Split into blocks
+    output_data = [input_data[i : i + DATA_CONSTELLATION_VALUES_PER_BLOCK] for i in range(0, len(input_data), DATA_CONSTELLATION_VALUES_PER_BLOCK)]
+    # Add pilot symbols
+    for block in output_data:
+        # split into smaller blocks
+        block = [block[i : i + PILOT_FREQUENCY - 1] + [PILOT_FREQUENCY] for i in range(0, DATA_CONSTELLATION_VALUES_PER_BLOCK, PILOT_FREQUENCY - 1)]
+        # Flatten and remove extra value
+        block = [datum for subblock in block for datum in subblock][:511]
 
     return output_data
 
@@ -415,7 +466,7 @@ def create_preamble():
     """
     Creates a preamble of length 2L = N
     """
-    data = "".join([str(random.randint(0, 1)) for i in range(DATA_BLOCK_LENGTH * WORD_LENGTH)])
+    data = "".join([str(random.randint(0, 1)) for i in range(CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE)])
     data = binary_to_words(data)
     data = words_to_constellation_values(data)
     data = constellation_values_to_data_blocks(data)
@@ -444,9 +495,9 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
         if set then does not output sound
     """
 
-    #data = text_to_binary()
-    random_string = "".join([str(random.randint(0, 1)) for i in range(10000)])
-    data = random_string
+    data = text_to_binary()
+    data = fill_binary(data)
+    data = xor_binary_and_key(data)
     data = binary_to_words(data)
     data = words_to_constellation_values(data)
     data = constellation_values_to_data_blocks(data)
@@ -463,3 +514,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
 fig, axs = plt.subplots(4)
 transmit()
 
+def generate_key():
+    random_string = "".join([str(random.randint(0, 1)) for i in range(DATA_BITS_PER_BLOCK)])
+    with open("key.txt", "w") as f:
+        f.write(random_string)
