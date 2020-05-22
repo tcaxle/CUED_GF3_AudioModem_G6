@@ -20,27 +20,9 @@ def wav_to_binary(input_file="input.wav"):
         string binary data
     """
 
-    # Open the file and read the data
+    # Ooen the file and read the data
     output_data = wavfile.read(input_file)[1]
-
-    print(output_data[0])
-    #return output_data
-    #Normalise Data
-    norm_data = [i/32767 for i in output_data]
-
-    # Add 1 to make all values positive
-    # Then scale by 2^16 / 2 = 2^15
-    # Then convert to integer (rounds down)
-    # Now we have 32 bit integers
-
-    norm_data = [int((datum + 1) * np.power(2, 15)) for datum in norm_data]
-
-    # Now convert to binary strings
-    # Use zfill to make sure each string is 16 bits long
-    # (By default python would not include redundant zeroes)
-    # (And that makes it super hard to decode)
-    # And use "".join() to make the whole thing one big string
-    return "".join(format(datum, "b").zfill(16) for datum in norm_data)
+    return output_data
  
 def sweep(duration=1, f_start=100, f_end=8000, sample_rate=48000, channels=1):
     """
@@ -55,9 +37,9 @@ def sweep(duration=1, f_start=100, f_end=8000, sample_rate=48000, channels=1):
     # Produce frequency sweep
     f_sweep = sg.chirp(time_array, f_start, duration, f_end)
     # Normalise sweep
-    f_sweep *= 32767 / np.max(np.abs(f_sweep))
+    #f_sweep *= 32767 / np.max(np.abs(f_sweep))
     
-    f_sweep = f_sweep.astype(np.int16)
+    #f_sweep = f_sweep.astype(np.int16)
     # Play noise
     # print(f_sweep)
     # recording = sd.playrec(f_sweep, sample_rate, channels=channels)
@@ -68,18 +50,22 @@ def recieve(input_data, known_data):
     
     data = input_data
     data = np.array(data).astype(np.float64)
-    
+    known_data = np.array(known_data).astype(np.float64)
+    known_data *= 1.0/np.max(np.abs(known_data))
     data *= 1.0 / np.max(np.abs(data))
     data = data.tolist()
+    known_data = known_data.tolist()
     
     dd_sample = np.gradient(np.gradient(known_data))
     dd_data = np.gradient(np.gradient(data))
+    #dd_sample = known_data
+    #dd_data = data
     sample_rate = 48000
     #Correlation between sample and data, normalised
-    corr = sg.correlate(dd_data, dd_sample, mode='full')
+    corr = sg.correlate(dd_data, dd_sample, mode='valid')
     
     #This normalised the corr, but it gives errors
-    #corr = corr / np.sqrt(sg.correlate(dd_sample, dd_sample, mode='full') * sg.correlate(dd_data, dd_data, mode='full'))
+    #corr = corr / np.sqrt(sg.correlate(dd_sample, dd_sample, mode='same') * sg.correlate(dd_data, dd_data, mode='same'))
     
     #Create and shift x axis from -0.5 to 0.5
     #delay_arr = np.linspace(-0.5*len(known_data)/sample_rate,0.5*len(known_data)/sample_rate,len(known_data))
@@ -98,14 +84,15 @@ def recieve(input_data, known_data):
         print('data is ' + str(np.round(lag,3)) + ' behind the sample')
 
  
-    # plt.figure()
-    # plt.plot(corr)
-    # plt.plot(lag)
-    # plt.title('Lag: ' + str(lag/sample_rate) + ' s or ' + str(lag) + ' samples')
-    # plt.xlabel('Lag')
-    # plt.ylabel('Correlation coeff')
-    # plt.xlim(0,lag+10000)
-    # plt.show()
+    plt.figure()
+    plt.plot(corr)
+    plt.plot(lag)
+    plt.title('Lag: ' + str(lag/sample_rate) + ' s or ' + str(lag) + ' samples')
+    plt.xlabel('Lag')
+    plt.ylabel('Correlation coeff')
+    plt.xlim(0,lag+10000)
+    plt.ylim(0,100)
+    plt.show()
     
     
     data = data[lag+sample_rate:] #remove everything up to the end of the chirp
@@ -122,9 +109,8 @@ def recieve(input_data, known_data):
     # 1) Split into blocks of 4096
     
     # 3) DFT N = 4096
-    demodulated_data = np.fft.fft(data, N)
+    demodulated_data = np.fft.fft(data,N)
     demodulated_data = np.array_split(demodulated_data,  block_number)
-
     #freq_known_data = np.fft.fft(known_data,N)
     #half_first_block = demodulated_data[1:2048]
     
@@ -142,9 +128,7 @@ def recieve(input_data, known_data):
     # # 4.2) Convolve
     #unconvolved_data = [np.divide(block, channel_resp) for block in demodulated_data]
     # # 4.3) Discard last half of each block
-    
     unconvolved_data = [block[1:2048] for block in demodulated_data]
-    
     # 5) Decide on optimal decoder for constellations
     # 5.1) Define constellation
     constellation = {
@@ -154,9 +138,9 @@ def recieve(input_data, known_data):
         complex(+1, -1)/np.sqrt(2): (1, 0),
     }
     # 5.2) Minimum distance decode and map to bits
-    # for block in unconvolved_data:
-    #     plt.scatter(block.real, block.imag)
-    # plt.show()
+    for block in unconvolved_data:
+        plt.scatter(block.real, block.imag)
+    plt.show()
     mapped_data = []
     for block in unconvolved_data:
         for data_symbol in block:
@@ -183,9 +167,8 @@ def recieve(input_data, known_data):
     #output_data = output_data[18:]
     #del output_data[0:18]
 # 6.4) Write output file
-    with open("output.txt", "w") as f:
-        for i in mapped_data:
-            f.write(str(i))
+    with open("output.txt", "wb") as f:
+        f.write(output_data)
 
     '''
     # Get peaks
@@ -250,9 +233,6 @@ def recieve(input_data, known_data):
 
 
 input_data = wav_to_binary('a7r56tu_received.wav')
-print(input_data[:16])
-
-             
 
 chirp, data_rate, samples = sweep()
 
