@@ -337,6 +337,11 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     if not suppress_audio:
         sd.play(data)
         sd.wait()
+    if save_to_file:
+          # Write data
+        with open('output.txt', 'w') as f:
+            for i in data:
+                f.write(str(i) + ',')
     return data
 
 def recieve(input_data):
