@@ -37,6 +37,8 @@ Imports
 -------
 """
 import numpy as np
+import scipy as sp
+from scipy import signal as sg
 from scipy.io import wavfile
 from matplotlib import pyplot as plt
 import sounddevice as sd
@@ -272,12 +274,12 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     # Normalise to 16-bit range
     data *= 32767 / np.max(np.abs(data))
     # start playback
-    axs[0].plot(data)
+    #axs[0].plot(data)
     sd.play(data)
     sd.wait()
     return data
 
-def recieve(input_data):
+def tomsrecieve(input_data):
 
     '''
     data = input_data
@@ -392,6 +394,116 @@ def recieve(input_data):
         f.write(data)
     '''
 
+def add_noise(input_data, SNR=1000):
+    # Preprocess
+    data = input_data
+    data = np.array(data)
+    data *= 1.0 / np.max(np.abs(data))
+    data = data.tolist()
+    print(data[1])
+
+    # Add AGWN
+    SNR = (10) ** (SNR / 20)
+    noise_magnitude = 1 / SNR
+    noise = noise_magnitude * np.random.normal(0, 1, len(data))
+    noise = noise.tolist()
+    data = [datum + noise_datum for datum, noise_datum in zip(data, noise)]
+
+    return data
+
+def synchronise(input_data):
+    input_data = np.array(input_data)
+
+    L = int(N / 2)
+    def calcP_R_M(rx_signal):
+        """
+        Parameters
+        ----------
+        rx_signal : LIST
+            The received signal prepended by the preamble twice
+            (Tested with added delay and noise)
+        L : INT
+            Preamble length
+
+        Returns
+        -------
+        Pr : LIST
+            P metric as described in Schmidl & Cox paper
+        Rr : LIST
+            R metric as described in Schmidl & Cox paper
+        M  : LIST
+            M metric as described in Schmidl & Cox paper
+        """
+
+        rx1 = rx_signal[:-L]
+        rx2 = rx_signal[L:]
+        mult = rx1.conj() * rx2
+        square = abs(rx1**2)
+
+        a_P = (1, -1)
+        b_P = np.zeros(L)
+        b_P[0] = 1
+        b_P[-1] = -1
+
+        P = sg.lfilter(b_P, a_P, mult) / L
+        R = sg.lfilter(b_P, a_P, square) / L
+
+        Pr = P[L:]
+        Rr = R[L:]
+        M = abs(Pr/Rr)**2
+        return Pr, Rr, M  # throw away first L samples, as they are not correct due to filter causality
+
+    Pr,Rr,M = calcP_R_M(input_data)   #Calculates preamble starting point by finding a plateu just before the preamble starts
+
+    plt.plot(abs(Pr), 'b--', lw=3, label='$P(d)$ (equation (6))');
+    plt.plot(abs(Rr), 'r--', lw=3, label='R, method 1')
+    plt.legend()
+    plt.show()
+
+    plt.plot(abs(input_data), label='$r[n]$', color='cyan')
+    plt.plot(M, label='$M(d)$')
+    plt.xlim(0,2000)
+    plt.legend()
+    plt.show()
+
+
+    plt.subplot(211)
+    plt.plot(abs(input_data))
+
+    plt.subplot(212)
+    #Filter to turn plateau into an peak for detection
+    b_toPeak = np.ones(L) / L
+    a = (1,)
+    M_filt = sg.lfilter(b_toPeak, a, M)
+
+
+    plt.plot(M,label='M(d) Metric')
+    #plt.plot(M_filt)
+
+    #Differentiate the filtered data
+    D = np.diff(M_filt)
+
+    zeroCrossing_2 = ((D[:-1] * D[1:]) <= 0) * (M[1:-1] > 0.01)
+
+    b_ignore = np.ones(1+1024+512)
+    b_ignore[0] = 0
+    ignore_times = (sg.lfilter(b_ignore, (1, ), zeroCrossing_2) > 0).astype(int)
+    zeroCrossing_3 = zeroCrossing_2 * (ignore_times == 0)   # keep only the zero-crossings where the ignore-window is not on
+
+    for i in range(len(zeroCrossing_3)):
+        if zeroCrossing_3[i]:
+            start = i
+            break
+
+    plt.plot(zeroCrossing_3, label='Preamble Start')
+    plt.legend()
+    plt.show()
+
+    #We have used the first block of data as our preamble so the M metric finds a large match with both the preamble and the first block
+    #Conditioning the signal to ignore matches less than the OFDM length means we only detect the preamble
+
+    return start
+
 def create_preamble():
     """
     Creates a preamble of length 2L = N
@@ -439,8 +551,17 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
 
     data = output(data)
 
-    recieve(data)
+    #data = add_noise(data)
+    #plt.plot(data)
+    #plt.show()
 
-fig, axs = plt.subplots(4)
+    start = synchronise(data)
+    data = data[start:]
+    plt.plot(data)
+    plt.show()
+
+    #recieve(data)
+
+#fig, axs = plt.subplots(4)
 transmit()
 
