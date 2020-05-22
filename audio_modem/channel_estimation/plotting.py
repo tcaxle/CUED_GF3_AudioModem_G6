@@ -12,17 +12,35 @@ import matplotlib.pyplot as plt
 sample_freq, sample= read('clap.wav',mmap=False)
 data_freq, data = read('Charalambos_test.wav', mmap=False)
 
+
+def organise_blocks(modulated_data, N, CYCLIC_PREFIX) :
+    
+    block_length = N + CYCLIC_PREFIX
+    block_number = int(len(modulated_data) / block_length)
+    
+    # 1) Split into blocks of N +CP
+    modulated_data = np.array_split(modulated_data, block_number)
+
+    # 2) Discard cyclic prefixes (first 32 bits)
+    modulated_data = [block[CYCLIC_PREFIX:] for block in modulated_data]
+
+    # 3) DFT N = 1024
+    #demodulated_data = np.fft.fft(modulated_data, N)
+
+    return modulated_data
+
+
 #Convert to Freq Domain
     
-spectrum_rec_data = np.fft.fft(data)    
-spectrum_sample_data = np.fft.fft(sample)
+spectrum_rec_data = np.fft.fft(organise_blocks(data,1024,512),1024)    
+spectrum_sample_data = np.fft.fft(sample,1024)
     
 
 #### Plotting Frequency Domain
         
     
-N1 = len(sample)   #Sample Frequency * Duration
-N2 = len(data)
+N1 = 1024   #Sample Frequency * Duration
+N2 = 1024
 # sample spacing
 T = 1.0 / 44100
 x1 = np.linspace(0.0, N1*T, N1)

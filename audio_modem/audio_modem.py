@@ -52,7 +52,7 @@ Constants
 N = 1024 # IDFT length
 PADDING = 0 # Frequency padding within block
 CP = 32 # Length of cyclic prefix
-WORD_LENGTH = 2 # Length of binary word per constellation symbol
+BITS_PER_CONSTELLATION_VALUE = 2 # Length of binary word per constellation symbol
 CONSTELLATION = {
     "00" : complex(+1, +1) / np.sqrt(2),
     "01" : complex(-1, +1) / np.sqrt(2),
@@ -61,9 +61,13 @@ CONSTELLATION = {
 } # Binary words mapped to complex values
 SAMPLE_FREQUENCY = 44100 # Sampling rate of system
 FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
+PILOT_FREQUENCY = 8 # Frequency of symbols to be pilot symbols
+PILOT_SYMBOL = complex(1, 1) / np.sqrt(2) # Value of pilot symbol
 # Calculated:
-DATA_BLOCK_LENGTH = int((N - 2 - 4 * PADDING) / 2)
 PREFIXED_SYMBOL_LENGTH = N + CP
+CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4 * PADDING) / 2)
+DATA_CONSTELLATION_VALUES_PER_BLOCK = CONSTELLATION_VALUES_PER_BLOCK - int(CONSTELLATION_VALUES_PER_BLOCK / PILOT_FREQUENCY)
+DATA_BITS_PER_BLOCK = DATA_CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE
 
 """
 sounddevice settings
@@ -121,6 +125,59 @@ def wav_to_binary(input_file="input.wav"):
     # And use "".join() to make the whole thing one big string
     return "".join(format(datum, "b").zfill(16) for datum in output_data)
 
+def fill_binary(input_data):
+    """
+    Makes sure that the length of the binary string will be an exact number of data blocks
+
+    Parameters
+    ----------
+    input_data : STRING
+        string of binary data
+    Returns
+    -------
+    output_data : STRING
+        string of binary data
+    """
+    output_data = [input_data[i : i + DATA_BITS_PER_BLOCK] for i in range(0, len(input_data), DATA_BITS_PER_BLOCK)]
+
+    # Append 0s to data to make it correct length for integer number of constellation values and blocks
+    output_data[-1] += "0" * (DATA_BITS_PER_BLOCK - len(output_data[-1]))
+
+    return "".join(output_data)
+
+def xor_binary_and_key(input_data):
+    """
+    XORs each bit with the key
+
+    Parameters
+    ----------
+    input_data : STRING
+        string of binary data
+    Returns
+    -------
+    output_data : STRING
+        string of binary data
+    """
+    def XOR(a, b):
+        if a == b:
+            return "0"
+        else:
+            return "1"
+
+    # Open the file and read the data
+    with open("key.txt", "r") as f:
+        key = f.read()
+
+    # make data into list of bits
+    output_data = [datum for datum in input_data]
+
+    # XOR the data
+    for i in range(0, len(output_data), DATA_BITS_PER_BLOCK):
+        for j in range(DATA_BITS_PER_BLOCK):
+            output_data[i + j] = XOR(output_data[i + j], key[j])
+
+    return "".join(output_data)
+
 def binary_to_words(input_data):
     """
     Parameters
@@ -131,13 +188,13 @@ def binary_to_words(input_data):
     Returns
     -------
     output_data : LIST of [STRING]
-        list of binary data words of length WORD_LENGTH
+        list of binary data words of length BITS_PER_CONSTELLATION_VALUE
     """
     # Split into word length blocks
-    output_data = [input_data[i : i + WORD_LENGTH] for i in range(0, len(input_data), WORD_LENGTH)]
+    output_data = [input_data[i : i + BITS_PER_CONSTELLATION_VALUE] for i in range(0, len(input_data), BITS_PER_CONSTELLATION_VALUE)]
 
-    # Make up final word to WORD_LENGTH with 0s
-    output_data[-1] += "0" * (WORD_LENGTH - len(output_data[-1]))
+    if len(output_data[-1]) != BITS_PER_CONSTELLATION_VALUE:
+        raise Exception("\n\nNot enough binary data to fill make words!\nFinal word of length {} out of {}!\n".format(len(output_data[-1]), BITS_PER_CONSTELLATION_VALUE))
 
     return output_data
 
@@ -146,7 +203,7 @@ def words_to_constellation_values(input_data):
     Parameters
     ----------
     input_data : LIST of [STRING]
-        list of binary words, length WORD_LENGTH
+        list of binary words, length BITS_PER_CONSTELLATION_VALUE
 
     Returns
     -------
@@ -155,12 +212,12 @@ def words_to_constellation_values(input_data):
     """
     output_data = []
     for word in input_data:
-        if len(word) != WORD_LENGTH:
+        if len(word) != BITS_PER_CONSTELLATION_VALUE:
             # Check word of correct length
-            raise Exception("Constellation words must be of length {}!".format(WORD_LENGTH))
+            raise Exception("\n\nConstellation words must be of length {}!\n".format(BITS_PER_CONSTELLATION_VALUE))
         elif word not in CONSTELLATION.keys():
             # Check word in constellation
-            raise Exception("Invalid constellation word {}!".format(word))
+            raise Exception("\n\nInvalid constellation word {}!\n".format(word))
         else:
             # Append the complex value associated with that word
             output_data.append(CONSTELLATION[word])
@@ -177,14 +234,18 @@ def constellation_values_to_data_blocks(input_data):
     Returns
     -------
     output_data : LIST of LIST of COMPLEX
-        splits data into blocks of length DATA_BLOCK_LENGTH
-        Makes up final block to full length with FILLER_VALUE
+        splits data into blocks of length CONSTELLATION_VALUES_PER_BLOCK and adds pilot symbols
     """
-    # Split data into blocks, length = DATA_BLOCK_LENGTH
-    output_data = [input_data[i : i + DATA_BLOCK_LENGTH] for i in range(0, len(input_data), DATA_BLOCK_LENGTH)]
 
-    # Add filler to final block
-    output_data[-1] += [FILLER_VALUE] * (DATA_BLOCK_LENGTH - len(output_data[-1]))
+    # Split into blocks
+    output_data = [input_data[i : i + DATA_CONSTELLATION_VALUES_PER_BLOCK] for i in range(0, len(input_data), DATA_CONSTELLATION_VALUES_PER_BLOCK)]
+    # Add pilot symbols
+    for i in range(len(output_data)):
+        # split into smaller blocks
+        block = output_data[i]
+        output_data[i] = [output_data[i][j : j + PILOT_FREQUENCY - 1] + [PILOT_SYMBOL] for j in range(0, DATA_CONSTELLATION_VALUES_PER_BLOCK, PILOT_FREQUENCY - 1)]
+        # Flatten and remove extra value
+        output_data[i] = [datum for subblock in output_data[i] for datum in subblock][:511]
 
     return output_data
 
@@ -201,11 +262,9 @@ def conjugate_block(input_data):
         list of conjugates of input data
         NB: list is in reverse order of input data (mirrored)
     """
-    # Find conjugates
-    output_data = [np.conj(datum) for datum in input_data]
 
-    # Reverse the list
-    return output_data[::-1]
+    # Find conjugates of reversed list
+    return [np.conj(datum) for datum in input_data[::-1]]
 
 def assemble_block(input_data):
     """
@@ -274,13 +333,13 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     # Normalise to 16-bit range
     data *= 32767 / np.max(np.abs(data))
     # start playback
-    #axs[0].plot(data)
-    sd.play(data)
-    sd.wait()
+    axs[0].plot(data)
+    if not suppress_audio:
+        sd.play(data)
+        sd.wait()
     return data
 
-def tomsrecieve(input_data):
-
+def recieve(input_data):
     '''
     data = input_data
     delayed_data = [0] * N + input_data
@@ -291,20 +350,12 @@ def tomsrecieve(input_data):
     plt.show()
     '''
 
-    # Preprocess
+    axs[0].plot(input_data)
+
     data = input_data
-    data = np.array(data)
+    data = np.array(data).astype(np.float32)
     data *= 1.0 / np.max(np.abs(data))
     data = data.tolist()
-    print(data[1])
-
-    # Add AGWN
-    SNR = 20 # dB
-    SNR = (10) ** (SNR / 20)
-    noise_magnitude = 1 / SNR
-    noise = noise_magnitude * np.random.normal(0, 1, len(data))
-    noise = noise.tolist()
-    data = [datum + noise_datum for datum, noise_datum in zip(data, noise)]
 
     # Correlate
     delayed_data = [0] * N + data[:-N]
@@ -333,9 +384,84 @@ def tomsrecieve(input_data):
     avg = []
     for i in range(len(diff[CP:])):
         avg.append(np.average(diff[i : i + CP]))
-
+    avg = [datum ** 3 for datum in avg]
+    # Denoise
+    avg = np.array(avg).astype(np.float32)
+    avg *= 1.0 / np.max(np.abs(avg))
+    avg = avg.tolist()
     axs[3].plot(avg)
+
+    # Detect most common location of cyclic prefix within the symbol
+    chunks = [avg[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(avg), PREFIXED_SYMBOL_LENGTH)]
+    chunks[-1] += [0] * (PREFIXED_SYMBOL_LENGTH - len(chunks[-1]))
+    scores = [0] * PREFIXED_SYMBOL_LENGTH
+    threshold = 0.5
+    for i in range(len(scores)):
+        for chunk in chunks:
+            if chunk[i] >= threshold:
+                scores[i] += 1
+    max_score= max(scores)
+    mode_prefix = 0
+    for i in range(len(scores)):
+        if scores[i] == max_score:
+            mode_prefix = i
+            break
+    # Create windows
+    windows = [0] * len(data)
+    for i in range(len(windows)):
+        if i % PREFIXED_SYMBOL_LENGTH == 0:
+            # Place marker for window starts
+            windows[i] = 32768
+            # Put marker for cyclic prefixes
+            try:
+                windows[i + CP] = 16384
+            except:
+                pass
+            try:
+                windows[i - CP] = 16384
+            except:
+                pass
+    # Shift by mode_prefix and cyclic prefix length
+    shift = mode_prefix + CP
+    synchronised_windows = [0] * shift + windows[:-shift]
+    synchronised_windows = [-datum for datum in synchronised_windows]
+    axs[0].plot(windows)
+    axs[0].plot(synchronised_windows)
+
     plt.show()
+
+    # Shift data to synchronise
+    data = data[shift:]
+    data = [data[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(data), PREFIXED_SYMBOL_LENGTH)]
+
+    # Remove all data blocks whose power is less than the normalised cutoff power
+    power_list = [np.sqrt(np.mean(np.square(block))) for block in data]
+    power_list = np.array(power_list)
+    power_list = power_list - np.min(power_list)
+    power_list *= 1.0 / np.max(power_list)
+    power_list = power_list.tolist()
+    cutoff = 0.5
+    power_list = [0 if datum < cutoff else 1 for datum in power_list]
+    data = [data[i] for i in range(len(data)) if power_list[i] == 1]
+
+    test_block = np.fft.fft(data[0][CP:], n=N)
+    test_block = test_block[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK]
+    plt.scatter(test_block.real, test_block.imag)
+    plt.show()
+
+    arguments = [np.arctan(datum.imag / datum.real) for datum in test_block]
+    print(np.std(arguments))
+
+    ###DO CHANNEL ESTIMATION HERE?##
+    ## 1) Extract pilots from the signal as we know their positions
+    ## 2) Average of each eqalised pilot over all OFDM symbols received
+    ## 3) Interpolate over the data for channel estimation::
+    ##      a) Could do interpolations between real and img data separately
+    ##      b) Or could do interpolations between magnitude and phase separately
+    ## 4) Each of the data carriers within each OFDM symbol is then equalised at its
+    ##    corresponding frequency using the complex interpolated channel estimate.
+    ##    Since the channel estimate is complex we can equalise both in magnitude and phase.
+    """ Don't get step four """
 
     '''
     # Get peaks
@@ -508,7 +634,7 @@ def create_preamble():
     """
     Creates a preamble of length 2L = N
     """
-    data = "".join([str(random.randint(0, 1)) for i in range(DATA_BLOCK_LENGTH * WORD_LENGTH)])
+    data = "".join([str(random.randint(0, 1)) for i in range(CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE)])
     data = binary_to_words(data)
     data = words_to_constellation_values(data)
     data = constellation_values_to_data_blocks(data)
@@ -521,6 +647,11 @@ def create_preamble():
     data = data[0]
     data = [2 * datum for datum in data]
     return data
+
+def add_noise(input_data, amplitude):
+    scale = max(input_data)
+    noise = scale * amplitude * np.random.normal(0, 1, len(input_data))
+    return [datum + noise_datum for datum, noise_datum in zip(input_data, noise)]
 
 def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False):
     """
@@ -537,31 +668,37 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
         if set then does not output sound
     """
 
-    #data = text_to_binary()
-    random_string = "".join([str(random.randint(0, 1)) for i in range(10000)])
-    data = random_string
+    data = text_to_binary()
+    data = fill_binary(data)
+    data = xor_binary_and_key(data)
     data = binary_to_words(data)
     data = words_to_constellation_values(data)
     data = constellation_values_to_data_blocks(data)
     data = assemble_block(data)
     data = block_ifft(data)
     data = cyclic_prefix(data)
-    preamble = create_preamble()
-    data = [preamble] + data
+    # preamble = create_preamble()
+    # data = [preamble] + data
+    # https://audio-modem.slack.com/archives/C013K2HGVL3
+    data = output(data, suppress_audio=True)
 
-    data = output(data)
+    #data = add_noise(data, 0.01)
 
     #data = add_noise(data)
     #plt.plot(data)
     #plt.show()
 
-    start = synchronise(data)
-    data = data[start:]
-    plt.plot(data)
-    plt.show()
+    #start = synchronise(data)
+    #data = data[start:]
+    #plt.plot(data)
+    #plt.show()
 
-    #recieve(data)
+    recieve(data)
 
-#fig, axs = plt.subplots(4)
+fig, axs = plt.subplots(4)
 transmit()
 
+def generate_key():
+    random_string = "".join([str(random.randint(0, 1)) for i in range(DATA_BITS_PER_BLOCK)])
+    with open("key.txt", "w") as f:
+        f.write(random_string)
