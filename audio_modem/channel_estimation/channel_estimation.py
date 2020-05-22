@@ -43,13 +43,12 @@ def channel_estimation(received_data, sent_data, int(N), int(CP):
         )
         H.append(H_datum)
 
-    # take average
-    # H = np.average(H, axis=0)
+    # Take average value of H determined for each block
+    H = np.average(H, axis=0)
     
     h = np.fft.ifft(H, N)
-    #h = np.real_if_close(h)
 
-    h = h[ : K + 1] # concatenate to length K
+    h = h[ : K + 1] # Find the first K coefficients
     return h
 
 
