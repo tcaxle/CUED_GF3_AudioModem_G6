@@ -378,11 +378,7 @@ def recieve(input_data):
     axs[3].plot(diff)
 
     # Extremify
-    for i in range(len(diff)):
-        if diff[i] >= 0:
-            diff[i] = +1
-        else:
-            diff[i] = -1
+    diff = [1 if datum >= 0 else -1 for datum in diff]
     #axs[3].plot(diff)
 
     # Detect symbols with a moving average window of width CP
@@ -396,7 +392,7 @@ def recieve(input_data):
     avg = avg.tolist()
     axs[3].plot(avg)
 
-    # Detect most common location of cyclic prefix within the symbol
+    # Detect most common locations of cyclic prefix within the symbol
     chunks = [avg[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(avg), PREFIXED_SYMBOL_LENGTH)]
     chunks[-1] += [0] * (PREFIXED_SYMBOL_LENGTH - len(chunks[-1]))
     scores = [0] * PREFIXED_SYMBOL_LENGTH
@@ -406,12 +402,14 @@ def recieve(input_data):
             if chunk[i] >= threshold:
                 scores[i] += 1
     max_score= max(scores)
-    mode_prefix = 0
+    shifts = []
     for i in range(len(scores)):
         if scores[i] == max_score:
-            mode_prefix = i
-            break
+            shifts.append(i)
+    shifts = [shift + CP for shift in shifts]
+
     # Create windows
+    # (for graphical reasons only)
     windows = [0] * len(data)
     for i in range(len(windows)):
         if i % PREFIXED_SYMBOL_LENGTH == 0:
@@ -426,13 +424,43 @@ def recieve(input_data):
                 windows[i - CP] = 16384
             except:
                 pass
-    # Shift by mode_prefix and cyclic prefix length
-    shift = mode_prefix + CP
-    synchronised_windows = [0] * shift + windows[:-shift]
-    synchronised_windows = [-datum for datum in synchronised_windows]
-    axs[0].plot(windows)
-    axs[0].plot(synchronised_windows)
 
+
+    # For each possible shift value, retrioeve the first OFDM symbol
+    deviations = {}
+    for shift in shifts:
+        # Shift data to synchronise
+        shifted_data = data[shift:]
+        shifted_data = [shifted_data[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(shifted_data), PREFIXED_SYMBOL_LENGTH)]
+
+        # Remove all data blocks whose power is less than the normalised cutoff power
+        power_list = [np.sqrt(np.mean(np.square(block))) for block in shifted_data]
+        power_list = np.array(power_list)
+        power_list = power_list - np.min(power_list)
+        power_list *= 1.0 / np.max(power_list)
+        power_list = power_list.tolist()
+        cutoff = 0.5
+        power_list = [0 if datum < cutoff else 1 for datum in power_list]
+        shifted_data = [shifted_data[i] for i in range(len(shifted_data)) if power_list[i] == 1]
+
+        # Extract first symbol and remove cyclic prefix
+        shifted_data = shifted_data[0][CP:]
+
+        # FFT and extract encoded data
+        shifted_data = np.fft.fft(shifted_data, n=N)
+        shifted_data = shifted_data[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK]
+
+        # Check arguments of first quadrant
+        # To check if it's a circle or a cluster
+        shifted_data = [np.arctan(datum.imag / datum.real) for datum in shifted_data]
+        shifted_data = [datum for datum in shifted_data if datum >= 0 and datum <= np.pi / 2]
+        deviations[np.std(shifted_data)] = shift
+
+    shift = deviations[min(deviations.keys())]
+
+    # Plot windows shifted by shift
+    windows = [0] * shift + windows[:-shift]
+    axs[0].plot(windows)
     plt.show()
 
     # Shift data to synchronise
@@ -449,13 +477,12 @@ def recieve(input_data):
     power_list = [0 if datum < cutoff else 1 for datum in power_list]
     data = [data[i] for i in range(len(data)) if power_list[i] == 1]
 
-    test_block = np.fft.fft(data[0][CP:], n=N)
-    test_block = test_block[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK]
-    plt.scatter(test_block.real, test_block.imag)
+    for block in data:
+        block = block[CP:]
+        block = np.fft.fft(block, n=N)
+        block = block[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK]
+        plt.scatter(block.real, block.imag)
     plt.show()
-
-    arguments = [np.arctan(datum.imag / datum.real) for datum in test_block]
-    print(np.std(arguments))
 
     ###DO CHANNEL ESTIMATION HERE?##
     ## 1) Extract pilots from the signal as we know their positions
