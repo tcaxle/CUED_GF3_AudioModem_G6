@@ -542,97 +542,122 @@ def add_noise(input_data, SNR=1000):
 
     return data
 
-def synchronise(input_data):
+def synchronise(input_data,CP):
     input_data = np.array(input_data)
 
     L = int(N / 2)
-    def calcP_R_M(rx_signal):
+    
+    def schmidl_cox(data,L):
+        
+        
         """
-        Parameters
-        ----------
-        rx_signal : LIST
-            The received signal prepended by the preamble twice
-            (Tested with added delay and noise)
-        L : INT
-            Preamble length
-
-        Returns
-        -------
-        Pr : LIST
-            P metric as described in Schmidl & Cox paper
-        Rr : LIST
-            R metric as described in Schmidl & Cox paper
-        M  : LIST
-            M metric as described in Schmidl & Cox paper
+        P-metric:
+        
+        If the conjugate of a sample from the first half (r*_d) is multiplied 
+        by the corresponding sample from the second half (r_d+L), the effect of
+        the channel should cancel. Therefore, the products of these pairs will be
+        very large.
+        
+        This is an iterative method as described in S&C to create a list of P-metric
+        values for the entire received data.
+        
+        Notes: Misses the last 2L points of data, unsure if this might lead to error
+                Not calculating P0 and R0, to save time, assumed irrelevant
         """
-
-        rx1 = rx_signal[:-L]
-        rx2 = rx_signal[L:]
-        mult = rx1.conj() * rx2
-        square = abs(rx1**2)
-
-        a_P = (1, -1)
-        b_P = np.zeros(L)
-        b_P[0] = 1
-        b_P[-1] = -1
-
-        P = sg.lfilter(b_P, a_P, mult) / L
-        R = sg.lfilter(b_P, a_P, square) / L
-
-        Pr = P[L:]
-        Rr = R[L:]
-        M = abs(Pr/Rr)**2
-        return Pr, Rr, M  # throw away first L samples, as they are not correct due to filter causality
-
-    Pr,Rr,M = calcP_R_M(input_data)   #Calculates preamble starting point by finding a plateu just before the preamble starts
-
-    plt.plot(abs(Pr), 'b--', lw=3, label='$P(d)$ (equation (6))');
-    plt.plot(abs(Rr), 'r--', lw=3, label='R, method 1')
-    plt.legend()
-    plt.show()
-
-    plt.plot(abs(input_data), label='$r[n]$', color='cyan')
-    plt.plot(M, label='$M(d)$')
-    plt.xlim(0,2000)
-    plt.legend()
-    plt.show()
-
-
-    plt.subplot(211)
-    plt.plot(abs(input_data))
-
-    plt.subplot(212)
-    #Filter to turn plateau into an peak for detection
-    b_toPeak = np.ones(L) / L
-    a = (1,)
-    M_filt = sg.lfilter(b_toPeak, a, M)
-
-
-    plt.plot(M,label='M(d) Metric')
-    #plt.plot(M_filt)
-
-    #Differentiate the filtered data
-    D = np.diff(M_filt)
-
-    zeroCrossing_2 = ((D[:-1] * D[1:]) <= 0) * (M[1:-1] > 0.01)
-
-    b_ignore = np.ones(1+1024+512)
-    b_ignore[0] = 0
-    ignore_times = (sg.lfilter(b_ignore, (1, ), zeroCrossing_2) > 0).astype(int)
-    zeroCrossing_3 = zeroCrossing_2 * (ignore_times == 0)   # keep only the zero-crossings where the ignore-window is not on
-
-    for i in range(len(zeroCrossing_3)):
-        if zeroCrossing_3[i]:
-            start = i
-            break
-
-    plt.plot(zeroCrossing_3, label='Preamble Start')
-    plt.legend()
-    plt.show()
-
-    #We have used the first block of data as our preamble so the M metric finds a large match with both the preamble and the first block
-    #Conditioning the signal to ignore matches less than the OFDM length means we only detect the preamble
-
+    
+        P = [None]*(len(data))
+        R = [None]*(len(data))
+        M = [None]*len(data)
+        
+        P[0] = 0
+        R[0] = 0
+        
+        for d in range(len(P)-2*L):        
+            P[d+1] = P[d] + np.conj(data[d+L])*data[d+2*L] - np.conj(data[d])*data[d+L]
+            
+        """
+        R-metric:
+            Received energy of data. Operation for item d:
+                --> add all squared values of items between d+L and d+2L
+        """
+        for d in range(len(R)-2*L):
+            R[d+1] = R[d] + abs(data[d+2*L])**2 - abs(data[d+L])**2
+        
+        for d in range(len(M)-2*L):
+            if R[d] != 0:
+              M[d] = (abs(P[d])**2)/(R[d]**2) 
+            else:
+                M[d] = 0
+                
+        # plt.subplot(211)   
+        # plt.plot(P,'b',label="P Metric")
+        # plt.plot(R,'r',label="R Metric")
+        # plt.subplot(212)
+        # plt.plot(M,'y',label="M metric")
+        # plt.legend()
+        # plt.show()
+        
+        ##### Remove None values here
+        P = [datum for datum in P if datum != None]
+        
+        R = [datum for datum in R if datum != None]
+        
+        M = [datum for datum in M if datum != None]
+        
+        return np.array(P), np.array(R), np.array(M)
+        
+    
+    def synchro_samples(P,R,M,CP,N):
+    
+        # Low Pass Filter to smooth out plateau and noise
+        num = np.ones(CP)/CP
+        
+        den = (1,0)
+        
+        Mf = sg.lfilter(num, den, M)
+         
+        # plt.subplot(212)    
+        # plt.plot(M,label='M Metric')
+        # plt.plot(Mf,'r',label = 'Filtered M Metric')
+        # plt.show()
+        
+        #Differentiation turn peaks from the filtered metric into zero crossings
+        
+        Mdiff = np.diff(Mf)
+        
+        plt.plot(Mdiff,'r',label = 'Diff Mf Metric')
+        plt.xlim(4230,5780)
+        plt.show()
+    
+    
+        ##Finds All zero crossings that match an M value above a threshold to account for noise
+        # Threshold is 0.98, with noise it should be smaller
+        
+        zero_crossings = ((Mdiff[1:] * Mdiff[:-1])<=0)
+       
+        zero_crossings = zero_crossings*(M[1:-1]>0.98)
+      
+        ##Multple crossings due to noise. To avoid, after the first crossing we change the next 
+        # N+CP crossings into False. 
+        Len = len(zero_crossings)-N-CP-1
+        
+        "PLEASE CLEAN UP"
+        for i in range(Len):
+            if zero_crossings[i] == True:
+                for j in range(i+1,N+CP+i+1):
+                    zero_crossings[j] = False
+        
+        start =  [i for i, val in enumerate(zero_crossings) if val] 
+        
+        ##Only take the first detection, but we should be testing all of them
+        
+        start=start[0]
+        
+        return start
+    
+    
+    P, R, M = schmidl_cox(input_data, L)
+    start = synchro_samples(P,R,M,CP,N)
     return start
 
 def create_preamble():
@@ -682,21 +707,20 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     data = assemble_block(data)
     data = block_ifft(data)
     data = cyclic_prefix(data)
-    # preamble = create_preamble()
-    # data = [preamble] + data
+    preamble = create_preamble()
+    data = [preamble] + data
     # https://audio-modem.slack.com/archives/C013K2HGVL3
-    data = output(data, suppress_audio=True)
+    data = output(data,save_to_file=True, suppress_audio=True)
 
-    #data = add_noise(data, 0.01)
+    data = add_noise(data, 0.01)
 
-    #data = add_noise(data)
-    #plt.plot(data)
-    #plt.show()
+    plt.plot(data)
+    plt.show()
 
-    #start = synchronise(data)
-    #data = data[start:]
-    #plt.plot(data)
-    #plt.show()
+    start = synchronise(data,CP)
+    data = data[start:]
+    plt.plot(data)
+    plt.show()
 
     recieve(data)
 
