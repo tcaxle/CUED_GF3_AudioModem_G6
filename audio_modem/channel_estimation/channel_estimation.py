@@ -1,17 +1,21 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.signal as sg
 
+K = 49
+##Arbitrary that determines the coefficients of channel impulse responce, MAX = CP
 
-
-def channel_estimation(received_data, sent_data, int(N), int(CP):
+def channel_estimation(received_data, sent_data, N, CP,K):
     """
     received_data: array of received symbols
     sent_data: array of sent symbols
     N: Block length
     CP: Cyclic Prefix size
-
+    K: Cut-off point for channel response coefficients
     h: array of the first K elements of the responce in the time domain
     """
+    N = int(N)
+    CP = int(CP)
     
     data_length = len(sent_data)
                        
@@ -27,7 +31,7 @@ def channel_estimation(received_data, sent_data, int(N), int(CP):
 
     for i in range(0, num_blocks):
         start = i*(N+CP) + CP 
-        end = lower_index + N
+        end = start + N
 
         y_block = sent_data[start : end]
         x_block = received_data[start : end]
@@ -35,12 +39,7 @@ def channel_estimation(received_data, sent_data, int(N), int(CP):
         DFT_y = np.fft.fft(y_block, N)
         DFT_x = np.fft.fft(x_block, N)
 
-        H_datum = np.true_divide(
-            DFT_y, 
-            DFT_x,
-            out=np.zeros_like(DFT_y), #returns an array of zeros with the same shape
-            where=DFT_x!=0
-        )
+        H_datum = np.true_divide(DFT_x, DFT_y,out=np.zeros_like(DFT_y), where=DFT_x!=0)
         H.append(H_datum)
 
     # Take average value of H determined for each block
@@ -50,7 +49,6 @@ def channel_estimation(received_data, sent_data, int(N), int(CP):
 
     h = h[ : K + 1] # Find the first K coefficients
     return h
-
 
 
 
@@ -64,9 +62,8 @@ def plot_in_time(h_time):
 
 
 
-
 def plot_in_freq_domain(h_time, N):
-    H_freq = np.fft.dft(h_arr, N)
+    H_freq = np.fft.fft(h_time, N)
     
     fig, (ax1, ax2) = plt.subplots(2, sharex=True)
     fig.suptitle("Frequency Response")
@@ -79,3 +76,13 @@ def plot_in_freq_domain(h_time, N):
     ax2.set(ylabel="Phase")
 
     plt.show()
+
+
+#channel_response = [1, 0.5, 0.35, 0.23, 0.2, 0.3, 0]
+# data = np.genfromtxt('sent_data.txt',dtype='float32',delimiter=',')
+# data = data[4410:15002]
+# convolved_signal = sg.convolve(data, channel_response)
+# convolved_signal = convolved_signal[:-(len(channel_response)-1)]
+# h = channel_estimation(convolved_signal,data,1024,300)
+# print(abs(np.round(h,4)))
+# plot_in_freq_domain(h,1024)

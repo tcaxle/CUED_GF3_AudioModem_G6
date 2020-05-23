@@ -668,7 +668,7 @@ def synchronise(input_data,CP):
         # N+CP crossings into False. 
         Len = len(zero_crossings)-N-CP-1
         
-        "PLEASE CLEAN UP"
+        "NEEDS CLEAN UP"
         for i in range(Len):
             if zero_crossings[i] == True:
                 for j in range(i+1,N+CP+i+1):
@@ -734,8 +734,8 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     data = assemble_block(data)
     data = block_ifft(data)
     data = cyclic_prefix(data)
-    preamble = create_preamble()
-    data = [preamble] + data
+    #preamble = create_preamble()
+    #data = [preamble] + data
     # https://audio-modem.slack.com/archives/C013K2HGVL3
     data = output(data,save_to_file=True, suppress_audio=True)
 
@@ -744,10 +744,10 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     plt.plot(data)
     plt.show()
 
-    start = synchronise(data,CP)
-    data = data[start:]
-    plt.plot(data)
-    plt.show()
+    #start = synchronise(data,CP)
+    #data = data[start:]
+    #plt.plot(data)
+    #plt.show()
 
     recieve(data)
 
