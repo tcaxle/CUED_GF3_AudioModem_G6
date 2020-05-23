@@ -6,7 +6,7 @@ import numpy as np
 import sounddevice as sd
 from scipy.io.wavfile import write
 
-def sent_sound(frequency=440, sample_rate=44100, duration=5):
+def sent_sound(frequency=1000, sample_rate=44100, duration=5):
     # calulcate total number of samples
     samples = int(sample_rate * duration)
 
@@ -23,11 +23,11 @@ def sent_sound(frequency=440, sample_rate=44100, duration=5):
     # convert to 16-bit data
     note = note.astype(np.int16)
     
-    write("check.wav",sample_rate,note)
+    write("sent.wav",sample_rate,note)
     # Wait for it to play
     sd.wait()
 
-sent_sound(880, 44100, 5)
+sent_sound(1000, 44100, 5)
 
 
 def rec_sound(frequency=440, sample_rate=44100, duration=5):
@@ -75,7 +75,7 @@ def rec_sound(frequency=440, sample_rate=44100, duration=5):
     
     write("both_rec.wav",sample_rate,both_note)
 
-rec_sound(880)
+#rec_sound(880)
     
 
 

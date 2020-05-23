@@ -1,12 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy.signal
+import scipy.signal as sg
 
 data = np.genfromtxt("output.txt",dtype='float32', delimiter=",")
+
 PREAMBLE_LEN = 512
 CYCLIC_PREF = 300
 OFDM_BLOCK_LENGTH = 1024  ## This is N
-THRESHOLD = 0.5
+THRESHOLD = 0.98
+
 
 ## The prefix is prepended twice but we use its original length for estimation
 
@@ -52,9 +54,9 @@ def schmidl_cox(data,L):
         else:
             M[d] = 0
             
-    # plt.subplot(211)   
-    # plt.plot(P,'b',label="P Metric")
-    # plt.plot(R,'r',label="R Metric")
+    #plt.subplot(211)   
+    #plt.plot(P,'b',label="P Metric")
+    #plt.plot(R,'r',label="R Metric")
     # plt.subplot(212)
     # plt.plot(M,'y',label="M metric")
     # plt.legend()
@@ -68,8 +70,6 @@ def schmidl_cox(data,L):
     M = [datum for datum in M if datum != None]
     
     return np.array(P), np.array(R), np.array(M)
-    
-P, R, M = schmidl_cox(data, PREAMBLE_LEN)
 
 
 def synchro_samples(P,R,M,CP,N):
@@ -79,58 +79,26 @@ def synchro_samples(P,R,M,CP,N):
     
     den = (1,0)
     
-    Mf = scipy.signal.lfilter(num, den, M)
+    Mf = sg.lfilter(num, den, M)
      
-    # plt.subplot(212)    
-    # plt.plot(M,label='M Metric')
-    # plt.plot(Mf,'r',label = 'Filtered M Metric')
-    # plt.show()
-    
     #Differentiation turn peaks from the filtered metric into zero crossings
     
     Mdiff = np.diff(Mf)
     
-    plt.plot(Mdiff,'r',label = 'Diff Mf Metric')
-    plt.xlim(4230,5780)
-    plt.show()
-
 
     ##Finds All zero crossings that match an M value above a threshold to account for noise
     # Threshold is 0.98, with noise it should be smaller
     
-    zero_crossings = ((Mdiff[1:] * Mdiff[:-1])<=0)
+    zero_crossings = ((Mdiff[:-1] * Mdiff[1:])<=0)*(M[1:-1]>THRESHOLD)
    
-    zero_crossings = zero_crossings*(M[1:-1]>0.98)
-  
     ##Multple crossings due to noise. To avoid, after the first crossing we skip the next 
     # N+CP crossings. 
     
-    "PLEASE CLEAN UP"
-    
-    for i in range(len((zero_crossings))):
-        if zero_crossings[i] == True:
-            for j in range(i+1,N+CP+i+1):
-                zero_crossings[j] = False
-    
+    b_ignore = np.ones(1+N+CP) 
+    b_ignore[0] = 0  
+    ignore_times = (sg.lfilter(b_ignore, (1, ), zero_crossings) > 0).astype(int)
+    zero_crossings = zero_crossings * (ignore_times == 0)   
+        
+
     return  [i for i, val in enumerate(zero_crossings) if val] 
-
-    
-sample = synchro_samples(P,R,M,CYCLIC_PREF,OFDM_BLOCK_LENGTH)    
-    
-print(sample)
-
-
-
-
-# plt.plot(zeroCrossing_3, label='Preamble Start')
-# # plt.legend(bbox_to_anchor=(0.63,0.33),
-# #            bbox_transform=plt.gcf().transFigure)
-# plt.xlim(4700,4710)
-# plt.show()
-
-
-# #We have used the first block of data as our preamble so the M metric finds a large match with both the preamble and the first block
-# #Conditioning the signal to ignore matches less than the OFDM length means we only detect the preamble
-
-
 

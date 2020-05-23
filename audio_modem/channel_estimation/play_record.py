@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import threading
 
-sample_freq, sound = read('clap.wav',mmap=False)
+sample_freq, sound = read('sent.wav',mmap=False)
 
 def play_sound(sound= sound, sample_rate=44100):
     print("PLAYING")
