@@ -2,18 +2,38 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal as sg
 
-data = np.genfromtxt("output.txt",dtype='float32', delimiter=",")
+# data = np.genfromtxt("output.txt",dtype='float32', delimiter=",")
 
-PREAMBLE_LEN = 512
-CYCLIC_PREF = 300
-OFDM_BLOCK_LENGTH = 1024  ## This is N
-THRESHOLD = 0.98
+# L = PREAMBLE_LEN = 512
+# CYCLIC_PREF = 256
+# OFDM_BLOCK_LENGTH = 1024  ## This is N
+# THRESHOLD = 0.98
 
 
 ## The prefix is prepended twice but we use its original length for estimation
 
-def schmidl_cox(data,L):
+def schmidl_cox(data,preamble_length):
+    """
     
+
+    Parameters
+    ----------
+    data : numpy array of float32 values
+    
+        An array of received values for which the P,R,M metrics need to be
+        calculated for the Schmidl & Cox synchronisation method
+    
+    preamble_length (aka L): Integer 
+
+        The length of the preamble prepended to the transmitted data. 
+        This should be half of the ofdm block length N
+
+    Returns
+    -------
+    
+    P,R,M Metrics: Numpy arrays of float32 values
+        Metrics used for synchronisation.
+    """
     
     """
     P-metric:
@@ -29,7 +49,8 @@ def schmidl_cox(data,L):
     Notes: Misses the last 2L points of data, unsure if this might lead to error
             Not calculating P0 and R0, to save time, assumed irrelevant
     """
-
+    
+    L = preamble_length
     P = [None]*(len(data))
     R = [None]*(len(data))
     M = [None]*len(data)
@@ -48,6 +69,11 @@ def schmidl_cox(data,L):
     for d in range(len(R)-2*L):
         R[d+1] = R[d] + abs(data[d+2*L])**2 - abs(data[d+L])**2
     
+    """
+    M-metric: P squared over R squared
+
+    """
+
     for d in range(len(M)-2*L):
         if R[d] != 0:
           M[d] = (abs(P[d])**2)/(R[d]**2) 
@@ -72,10 +98,10 @@ def schmidl_cox(data,L):
     return np.array(P), np.array(R), np.array(M)
 
 
-def synchro_samples(P,R,M,CP,N):
+def snc_start(P,R,M,ofdm_block_length,cp,threshold=0.9):
 
     # Low Pass Filter to smooth out plateau and noise
-    num = np.ones(CP)/CP
+    num = np.ones(cp)/cp
     
     den = (1,0)
     
@@ -89,14 +115,14 @@ def synchro_samples(P,R,M,CP,N):
     ##Finds All zero crossings that match an M value above a threshold to account for noise
     # Threshold is 0.98, with noise it should be smaller
     
-    zero_crossings = ((Mdiff[:-1] * Mdiff[1:])<=0)*(M[1:-1]>THRESHOLD)
+    zero_crossings = ((Mdiff[:-1] * Mdiff[1:])<=0)*(M[1:-1]>threshold)
    
     ##Multple crossings due to noise. To avoid, after the first crossing we skip the next 
     # N+CP crossings. 
     
-    b_ignore = np.ones(1+N+CP) 
-    b_ignore[0] = 0  
-    ignore_times = (sg.lfilter(b_ignore, (1, ), zero_crossings) > 0).astype(int)
+    ignored_crossings = np.ones(1+ofdm_block_length+cp) 
+    ignored_crossings[0] = 0  
+    ignore_times = (sg.lfilter(ignored_crossings, (1, ), zero_crossings) > 0).astype(int)
     zero_crossings = zero_crossings * (ignore_times == 0)   
         
 

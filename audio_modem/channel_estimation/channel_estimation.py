@@ -2,18 +2,30 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal as sg
 
-K = 49
-##Arbitrary that determines the coefficients of channel impulse responce, MAX = CP
+##K is arbitrary and determines the coefficients of channel impulse responce, MAX = CP
 
-def channel_estimation(received_data, sent_data, N, CP,K):
+def channel_estimation(received_data, sent_data, N, CP,K=49):
     """
-    received_data: array of received symbols
-    sent_data: array of sent symbols
-    N: Block length
-    CP: Cyclic Prefix size
-    K: Cut-off point for channel response coefficients
-    h: array of the first K elements of the responce in the time domain
+    Parameters
+    ----------
+    received_data : Numpy Array of float32
+        Array of received data
+        
+    sent_data : Numpy Array of float32
+        Array of transmitted data 
+    N : INT
+        OFDM block length
+    CP : INT
+        Cyclic prefix length
+    K : INT
+        Cut-off point for channel response coefficients
+
+    Returns
+    -------
+    h : LIST
+        The coefficients of the channel impulse responce
     """
+    
     N = int(N)
     CP = int(CP)
     
@@ -78,6 +90,8 @@ def plot_in_freq_domain(h_time, N):
     plt.show()
 
 
+
+########## TESTING ##########
 #channel_response = [1, 0.5, 0.35, 0.23, 0.2, 0.3, 0]
 # data = np.genfromtxt('sent_data.txt',dtype='float32',delimiter=',')
 # data = data[4410:15002]

@@ -75,7 +75,7 @@ def lag_finder(sample, data, sample_rate, plot=False, grad_mode = True):
         return lag, grad_mode, 0, 0
     
      
-def synchronisation(sample, data, sample_freq, lag):
+def lag_sync(sample, data, sample_freq, lag):
      
     """
     This function takes two data sets, their sampled frequency,
