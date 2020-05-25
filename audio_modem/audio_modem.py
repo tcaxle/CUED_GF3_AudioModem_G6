@@ -495,50 +495,20 @@ def recieve(input_data):
     ##    Since the channel estimate is complex we can equalise both in magnitude and phase.
     """ Don't get step four """
 
-    '''
-    # Get peaks
-    peaks = []
-    cutoff = 0.2
-    for point in diff:
-        if point >= cutoff:
-            peaks.append(1)
-        else:
-            peaks.append(0)
-    peak_locations = []
-
-    # Find only peaks that are three samples wide
-    for i in range(len(peaks)):
-        if peaks[i] == 1 and peaks[i+2] == 1:
-            peaks[i+1] = 1
-            peak_locations.append(i+1)
-        else:
-            peaks[i] = 0
-    axs[2].plot(diff)
-    axs[3].plot(peaks)
-    plt.show()
-
-    # Recover blocks
-    data = []
-    for location in peak_locations:
-        data.append(input_data[location - int(N/2) : location + int(N/2)])
-
-    # FFT
-    data = [np.fft.fft(block, N) for block in data]
-
-    # Extract peritnent info
-    data = [block[1:512] for block in data]
-
     # Minimum distance map
-    #for block in data:
-    #    plt.scatter(block.real, block.imag)
-    #plt.show()
     for i in range(len(data)):
         block = data[i]
         output = []
         for datum in block:
             distances = {abs(datum - value) : key for key, value in CONSTELLATION.items()}
             min_distance = min(distances)
+            value = distances[min_distance]
             output.append(distances[min_distance])
+        # Remove Pilot Symbols
+        for j in range(len(output)):
+            if j % PILOT_FREQUENCY == 0:
+                output[j] = None
+        output = [datum for datum in output if datum is not None]
         data[i] = output
 
     # Flatten and join to one string
@@ -550,7 +520,6 @@ def recieve(input_data):
     data = bytearray([int(i, 2) for i in data])
     with open("output.txt", "wb") as f:
         f.write(data)
-    '''
 
 def add_noise(input_data, SNR=1000):
     # Preprocess
@@ -714,7 +683,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     # https://audio-modem.slack.com/archives/C013K2HGVL3
     data = output(data, suppress_audio=True)
 
-    data = add_noise(data, 0.01)
+    data = add_noise(data, 0.05)
 
     #data = add_noise(data)
     #plt.plot(data)
