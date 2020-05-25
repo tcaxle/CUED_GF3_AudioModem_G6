@@ -51,35 +51,56 @@ def schmidl_cox(data,preamble_length):
     """
     
     L = preamble_length
-    P = [None]*(len(data))
-    R = [None]*(len(data))
-    M = [None]*len(data)
+    P = [0]*(len(data))
+    R = [0]*(len(data))
+    M = [0]*len(data)
     
-    P[0] = 0
-    R[0] = 0
+    s=0
+    for m in range(L):
+       s +=  np.conj(data[m])*data[m+L]
     
-    for d in range(len(P)-2*L):        
+    P[0]= s
+    
+    s=0
+    for m in range(L):
+        s += (data[m+L])**2
+
+    R[0] = s
+
+    ##Non causal version for the first 2L elements
+    for d in range(2*L):        
         P[d+1] = P[d] + np.conj(data[d+L])*data[d+2*L] - np.conj(data[d])*data[d+L]
+    ##Causal version for the rest of the data
+    for d in range(2*L,len(P)-1):
+          P[d+1] = P[d] + np.conj(data[d-L])*data[d] - np.conj(data[d-2*L])*data[d-L]      
         
     """
     R-metric:
         Received energy of data. Operation for item d:
             --> add all squared values of items between d+L and d+2L
     """
-    for d in range(len(R)-2*L):
+    ##Non causal version for the first 2L elements
+    for d in range(2*L):
         R[d+1] = R[d] + abs(data[d+2*L])**2 - abs(data[d+L])**2
+    
+    ##Causal version for the rest of the data
+    for d in range(L,len(R)-1):
+        R[d+1] = R[d] + abs(data[d])**2 - abs(data[d-L])**2
+
     
     """
     M-metric: P squared over R squared
 
     """
-
-    for d in range(len(M)-2*L):
-        if R[d] != 0:
-          M[d] = (abs(P[d])**2)/(R[d]**2) 
-        else:
-            M[d] = 0
-            
+    ##Set a threshold for the minimum R used, to reduce wrong detections
+    R = np.array(R)    
+    energy_threshold = np.sqrt(np.mean(R**2))
+    
+    
+    for d in range(len(M)):
+        if R[d] > (energy_threshold):
+         M[d] = (abs(P[d])**2)/(R[d]**2) 
+                
     #plt.subplot(211)   
     #plt.plot(P,'b',label="P Metric")
     #plt.plot(R,'r',label="R Metric")
