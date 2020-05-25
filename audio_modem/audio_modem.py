@@ -391,7 +391,15 @@ def recieve(input_data):
     avg *= 1.0 / np.max(np.abs(avg))
     avg = avg.tolist()
     axs[3].plot(avg)
-
+    
+    '''
+    ### Moving average with filter
+    num = (np.ones(CP))/CP
+    den = (1,)
+    avg = sg.lfilter(num,den,diff)
+    ##or equvalently, convolve but it might change the length
+    #avg = sg.convolve(diff, num) #check if it helps to set mode to same'
+    '''
     # Detect most common locations of cyclic prefix within the symbol
     chunks = [avg[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(avg), PREFIXED_SYMBOL_LENGTH)]
     chunks[-1] += [0] * (PREFIXED_SYMBOL_LENGTH - len(chunks[-1]))
