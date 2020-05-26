@@ -85,15 +85,16 @@ def sweep(f_start=500, f_end=2000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP)
     """
     Returns a frequency sweep
     """
-    # Calculate number of samples
+    # Calculate the duration
     duration = samples / sample_rate
     # Produce time array
     time_array = np.linspace(0, duration, samples)
+    
     # Produce frequency sweep
     f_sweep = sg.chirp(time_array, f_start, duration, f_end)
     # Normalise sweep
-    f_sweep *= 16384 / np.max(np.abs(f_sweep))
-    f_sweep = f_sweep.astype(np.int16)
+    # f_sweep *= 1/np.max(np.abs(f_sweep))
+    # f_sweep = f_sweep.astype(np.int16)
     
     return f_sweep
 
@@ -293,6 +294,7 @@ def assemble_block(input_data):
     output_data : LIST of LIST of COMPLEX
         list of blocks assembled ready for IDFT
     """
+
     padding = [0] * PADDING
     dc = [0]
     mid = [0]
@@ -340,14 +342,22 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     * Normalises data to +/- 1.0
     * Transmits data from audio device
     """
+    data = input_data
+    
+    for i,block in enumerate(data):
+            data[i] = np.array(block).astype(np.float32)
+            # Normalise to 16-bit range
+            data[i] *= 32767 / np.max(np.abs(block))
+
+
     # Pad with 0.1s of silence either side of transmitted data
     silent_padding = [0] * int(SAMPLE_FREQUENCY * 0.1)
-    data = silent_padding + [datum for block in input_data for datum in block] + silent_padding
-    # convert to 16-bit data
-    data = np.array(data).astype(np.float32)
-    # Normalise to 16-bit range
-    data *= 32767 / np.max(np.abs(data))
-    # start playback
+    data = silent_padding + [datum for block in data for datum in block] + silent_padding
+    # # convert to 16-bit data
+    # data = np.array(data).astype(np.float32)
+    # # Normalise to 16-bit range
+    # data *= 32767 / np.max(np.abs(data))
+    # # start playback
     #axs[0].plot(data)
     if not suppress_audio:
         sd.play(data)
@@ -716,20 +726,26 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     print(data[0][:10])
     print("Number of CPed blocks:", len(data))
     print("Length of CPed blocks:", len(data[0]))
+    
+    
+    chirp = sweep()
+    
+    data = [chirp.tolist()] + data
+    
     data = output(data,save_to_file=True,suppress_audio=True)
+    
+    
     print("")
     print("Padding adds 1 block before and 1 block after")
     print("Number of output:", len(data))
     print(data[15000:15430])
     
-    chirp = sweep()
     print(chirp[:30])
     print(type(chirp))
     print(type(data))
     print(len(chirp))
     
-    data = np.insert(data,int(0.1*SAMPLE_FREQUENCY),chirp)
-    
+    #data = np.insert(data,int(0.1*SAMPLE_FREQUENCY),chirp)
     #wav_output(data,SAMPLE_FREQUENCY)
     wav_output(chirp,SAMPLE_FREQUENCY)
     
