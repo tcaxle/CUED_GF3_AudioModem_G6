@@ -14,7 +14,7 @@ MODE A) CP = 224, MODE B) CP = 704, MODE C) CP = 1184
 
     [< DATA >]
     |--2047--|
-
+_
 3. Blocks:
 
     [< 0 >|< DATA >|< 0 >|< CONJUGATE DATA >|]
@@ -45,6 +45,7 @@ from scipy.io import wavfile
 from matplotlib import pyplot as plt
 import sounddevice as sd
 import random
+from data_handling.exports import wav_output
 
 """
 Constants
@@ -80,18 +81,18 @@ sounddevice settings
 sd.default.samplerate = SAMPLE_FREQUENCY
 sd.default.channels = 1
 
-def sweep(f_start=500, f_end=2000, sample_rate=SAMPLE_FREQUENCY,duration=5*N*CP, channels=1):
+def sweep(f_start=500, f_end=2000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP), channels=1):
     """
     Returns a frequency sweep
     """
     # Calculate number of samples
-    samples = int(duration * sample_rate)
+    duration = samples / sample_rate
     # Produce time array
     time_array = np.linspace(0, duration, samples)
     # Produce frequency sweep
     f_sweep = sg.chirp(time_array, f_start, duration, f_end)
     # Normalise sweep
-    f_sweep *= 32767 / np.max(np.abs(f_sweep))
+    f_sweep *= 16384 / np.max(np.abs(f_sweep))
     f_sweep = f_sweep.astype(np.int16)
     
     return f_sweep
@@ -347,7 +348,7 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     # Normalise to 16-bit range
     data *= 32767 / np.max(np.abs(data))
     # start playback
-    axs[0].plot(data)
+    #axs[0].plot(data)
     if not suppress_audio:
         sd.play(data)
         sd.wait()
@@ -358,105 +359,110 @@ def output(input_data, save_to_file=False, suppress_audio=False):
                 f.write(str(i) + ',')
     return data
 
-def receive(input_data):
+
+ 
+    
+
+
+#######RECEIVER########
+    
+def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = True):
+    
+    """
+    Takes a file to be sent (chirp) and a received file and tries to locate
+    the chirp inside the received file
+    
+    If plot is set, then it will produce a matplotlib plot of the output
+    
+    Grad Mode: True or False.
+    
+    If true, it finds the second gradient before correlating. 
+    
+    If False it just finds correleation between given inputs.
+    
+    window: INT How far before and afterwards to search for synchronisation
+    """
+    
+    if window > len(sample):
+        raise ValueError("The window should not be larger than the added chirp")
+    
+    dd_sample = sample
+    dd_data = data
+ 
+    if grad_mode: 
+    ###Using the second derivative of signals
+        dd_sample = np.gradient(np.gradient(sample))
+        dd_data = np.gradient(np.gradient(data))
+ 
+    #Correlation between sample and data, normalised
+    corr = sg.correlate(dd_data, dd_sample, mode='full')
+    
+    #This normalised the corr, but it gives errors
+    #corr = corr / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
+    
+    #Create and shift x axis from -0.5 to 0.5
+    #delay_arr = np.linspace(-0.5*n/sample_rate, 0.5*n/sample_rate, n)
+    
+    #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
+    shift = np.argmax(corr)
     
     
-    def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = True):
+    if shift < 0:
+        print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
+    else:
+        print('data is ' + str(np.round(shift,3)) + ' behind the sample')
+    
+    shifts = np.linspace(shift-window,shift+window,2*window+1).astype(int).tolist()
         
-        """
-        Takes a file to be sent (chirp) and a received file and tries to locate
-        the chirp inside the received file
-        
-        If plot is set, then it will produce a matplotlib plot of the output
-        
-        Grad Mode: True or False.
-        
-        If true, it finds the second gradient before correlating. 
-        
-        If False it just finds correleation between given inputs.
-        
-        window: INT How far before and afterwards to search for synchronisation
-        """
-        
-        if window > len(sample):
-            raise ValueError("The window should not be larger than the added chirp")
-        
-        dd_sample = sample
-        dd_data = data
-     
-        if grad_mode: 
-        ###Using the second derivative of signals
-            dd_sample = np.gradient(np.gradient(sample))
-            dd_data = np.gradient(np.gradient(data))
-     
-        #Correlation between sample and data, normalised
-        corr = sg.correlate(dd_data, dd_sample, mode='full')
-        
-        #This normalised the corr, but it gives errors
-        #corr = corr / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
-        
-        #Create and shift x axis from -0.5 to 0.5
-        #delay_arr = np.linspace(-0.5*n/sample_rate, 0.5*n/sample_rate, n)
-        
-        #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
-        shift = np.argmax(corr)
-        
-        if shift < 0:
-            print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
-        else:
-            print('data is ' + str(np.round(shift,3)) + ' behind the sample')
-        
-        shifts = np.linspace(shift-window,shift+window,2*window+1).astype(int).tolist()
-            
-        return shifts
-           
-    def shift_sync(sample, data, sample_freq, shift):
+    return shifts
        
-      """
-      This function takes two data sets, their sampled frequency,
-      and the shift between them. 
-      
-      It removes the shift between the beggining of the data (relative 
-      to the sample). 
-      
-      It returns the data with equal length as the sample (for plotting).
-      """
-      
-      ## shift should be more precise than sample rate
-      # Round order of magnitude of shift close to sample precision and add 1 for safety  
-      
-      shift_sign = shift
-      #print(shift,type(shift))
-      shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
-      
-      # Find the difference between the two samples
-      sample_shift = int(np.floor(shift * sample_freq))
-      
-      #Assuming the data has a delay at the beginning
-      
-      if shift_sign > 0:
-                  
-          #remove the sample shift from the data, getting closer to when the sample began
-          data = data[sample_shift:]
-          
-          #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
-          data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
-                
-          
-      ###Assuming the data arrives faster than the sample (negative delay)
-      ###This occurs if we estimate the shift too early. Feeding the signal again should
-      ###trigger this and try and shift the data to the right
-      
-          
-      elif shift_sign < 0:
-          
-          #Pad sample_shift amount of zeroes until data and sample match    
-          data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
+def shift_sync(sample, data, sample_freq, shift):
+   
+  """
+  This function takes two data sets, their sampled frequency,
+  and the shift between them. 
   
-          #remove the end samples
-          data = data[:-sample_shift]
-          
-      return data
+  It removes the shift between the beggining of the data (relative 
+  to the sample). 
+  
+  It returns the data with equal length as the sample (for plotting).
+  """
+  
+  ## shift should be more precise than sample rate
+  # Round order of magnitude of shift close to sample precision and add 1 for safety  
+  
+  shift_sign = shift
+  #print(shift,type(shift))
+  shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
+  
+  # Find the difference between the two samples
+  sample_shift = int(np.floor(shift * sample_freq))
+  
+  #Assuming the data has a delay at the beginning
+  
+  if shift_sign > 0:
+              
+      #remove the sample shift from the data, getting closer to when the sample began
+      data = data[sample_shift:]
+      
+      #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
+      data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
+            
+      
+  ###Assuming the data arrives faster than the sample (negative delay)
+  ###This occurs if we estimate the shift too early. Feeding the signal again should
+  ###trigger this and try and shift the data to the right
+  
+      
+  elif shift_sign < 0:
+      
+      #Pad sample_shift amount of zeroes until data and sample match    
+      data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
+  
+      #remove the end samples
+      data = data[:-sample_shift]
+      
+  return data
 
 def check_synchronisation(data,shifts):  
     
@@ -714,7 +720,26 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     print("")
     print("Padding adds 1 block before and 1 block after")
     print("Number of output:", len(data))
-
+    print(data[15000:15430])
+    
+    chirp = sweep()
+    print(chirp[:30])
+    print(type(chirp))
+    print(type(data))
+    print(len(chirp))
+    
+    data = np.insert(data,int(0.1*SAMPLE_FREQUENCY),chirp)
+    
+    #wav_output(data,SAMPLE_FREQUENCY)
+    wav_output(chirp,SAMPLE_FREQUENCY)
+    
+    ##Needed only on the very end
+    #data = np.insert(data,-int(0.1*SAMPLE_FREQUENCY),chirp)
+    
+    #print(data[24000+4790:24000+4820])
+    print(type(data))
+    print(len(data))
+    
     # data = text_to_binary()
     # data = fill_binary(data)
     # #data = xor_binary_and_key(data)
@@ -729,20 +754,36 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     # # https://audio-modem.slack.com/archives/C013K2HGVL3
     # data = output(data,save_to_file=True, suppress_audio=True)
 
-    # data = add_noise_amp(data, 0.05)
+    #data = add_noise_db(data, 3)
+    
 
-    plt.plot(data)
-    plt.show()
 
     #start = synchronise(data,CP)
     #data = data[start:]
     #plt.plot(data)
     #plt.show()
-    return data
+    #return data
+        
+    shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
+    
+    plt.figure()
+    plt.plot(data)
+    plt.axvline(shifts,color='r',label='Detected chirp end = ' + str(shifts[0]))
+    plt.title("SNR 3dB")
+    plt.xlabel("Samples")
+    plt.ylabel("Magnitude")
+    plt.legend()
+    plt.show()    
 
-fig, axs = plt.subplots(4)
-data = transmit()
-#receive(data)
+    print(shifts)
+    
+    pass
+
+    
+#fig, axs = plt.subplots(1)
+
+tx_data = transmit()
+
 
 def generate_key():
     random_string = "".join([str(random.randint(0, 1)) for i in range(DATA_BITS_PER_BLOCK)])
