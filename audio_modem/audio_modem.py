@@ -1,34 +1,36 @@
 """
 Structures
 ----------
-(Lengths given for N=1024, CP=32, PADDING=0, CONSTELLATION=QPSK)
+(Lengths given for N=4096, CP=704 (B), PADDING=0, CONSTELLATION=QPSK)
+
+MODE A) CP = 224, MODE B) CP = 704, MODE C) CP = 1184 
 
 1. Binary Data:
 
     [< DATA >]
-    |--1022--|
+    |--4094--|
 
 2. Paired Binary Data:
 
     [< DATA >]
-    |-- 511--|
+    |--2047--|
 
 3. Blocks:
 
-    [< 0 >|< PAD >|< DATA >|< PAD >|< 0 >|< PAD >|< CONJUGATE DATA >|< PAD >]
-    |             |--0511--|                     |------- 511-------|       |
-    |--------------------------------- 1024---------------------------------|
+    [< 0 >|< DATA >|< 0 >|< CONJUGATE DATA >|]
+    |     |--2047--|     |------- 2047-------|
+    |---------------4096---------------------|
 
 4. Symbols (after IFFT):
 
     [< SYMBOL >]
-    |---1024---|
+    |---4096---|
 
 5. Prefixed Symbols:
 
     [< CYCLIC PREFIX >|< SYMBOL >]
-    |------- 32-------|---1024---|
-    |------------1056------------|
+    |-------704-------|---4096---|
+    |------------4800------------|
 
 """
 
@@ -49,9 +51,9 @@ Constants
 ---------
 """
 # Set:
-N = 1024 # IDFT length
+N = 4096 # IDFT length
 PADDING = 0 # Frequency padding within block
-CP = 32 # Length of cyclic prefix
+CP = 704 # Length of cyclic prefix
 BITS_PER_CONSTELLATION_VALUE = 2 # Length of binary word per constellation symbol
 CONSTELLATION = {
     "00" : complex(+1, +1) / np.sqrt(2),
@@ -59,7 +61,7 @@ CONSTELLATION = {
     "11" : complex(-1, -1) / np.sqrt(2),
     "10" : complex(+1, -1) / np.sqrt(2),
 } # Binary words mapped to complex values
-SAMPLE_FREQUENCY = 44100 # Sampling rate of system
+SAMPLE_FREQUENCY = 48000 # Sampling rate of system
 FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
 PILOT_FREQUENCY = 8 # Frequency of symbols to be pilot symbols
 PILOT_SYMBOL = complex(1, 1) / np.sqrt(2) # Value of pilot symbol
@@ -75,6 +77,22 @@ sounddevice settings
 """
 sd.default.samplerate = SAMPLE_FREQUENCY
 sd.default.channels = 1
+
+def sweep(f_start=500, f_end=2000, sample_rate=SAMPLE_FREQUENCY,duration=5*N*CP, channels=1):
+    """
+    Returns a frequency sweep
+    """
+    # Calculate number of samples
+    samples = int(duration * sample_rate)
+    # Produce time array
+    time_array = np.linspace(0, duration, samples)
+    # Produce frequency sweep
+    f_sweep = sg.chirp(time_array, f_start, duration, f_end)
+    # Normalise sweep
+    f_sweep *= 32767 / np.max(np.abs(f_sweep))
+    f_sweep = f_sweep.astype(np.int16)
+    
+    return f_sweep
 
 def text_to_binary(input_file="input.txt"):
     """
@@ -346,38 +364,27 @@ def output(input_data, save_to_file=False, suppress_audio=False):
 
 def recieve(input_data):
     
-    ##### NOTES FOR THE FUTURE: 
-    ##### 1) THIS FILE IS DIFFICULT TO PARSE DUE TO POOR FORMATTING (APOLOGIES)
-    ##### 2) SYNCHRONISATION ONLY WORKS IF DATA DRIFTS FORWARD
-    ##### 3) IF THE DATA DRIFTS BACKWARDS, ESTIMATES GIVE 0 DELAY,
-    ##### SYNCHRO FUNCTION SHIFTS NOTHING
-    ##### 4) CORRELATION DOESN'T WORK IN THAT CASE, BOTH MAX OR GRADIENT MAX FAIL
-    ##### 5) FOR  DELAYS BOTH IN THE BEGGINING AND END OF FILES, 
-    ##### ITERATION THROUGH THE shift AND SYNCHRO FUNCTIONS SHOULD: CLEAR THEM ALL,
-    ##### THEN ALIGN THE DATA WITH THE SAMPLE AND ADD ZEROES EVERYWHERE ELSE. 
-    ##### THIS WILL BE POSSIBLE IF BACKWARDS DRIFT IS HANDLED, NOT YET IMPLEMENTED
-    ##### 6) THE PLOTTING FUNCTION IS FOR TESTING ONLY, NOT REQUIRED
     
-    def shift_finder(sample, data, sample_rate, plot=False, grad_mode = True):
+    def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = True):
         
         """
-        Takes a file to be sent and a received file and finds the difference 
-        by which the received file is delayed.
+        Takes a file to be sent (chirp) and a received file and tries to locate
+        the chirp inside the received file
         
         If plot is set, then it will produce a matplotlib plot of the output
         
         Grad Mode: True or False.
         
-        If true, it finds the double gradient before correlating. 
+        If true, it finds the second gradient before correlating. 
         
         If False it just finds correleation between given inputs.
         
-        Gradient estimation has yet to be tested fully.
-            
+        window: INT How far before and afterwards to search for synchronisation
         """
-    
         
-       
+        if window > len(sample):
+            raise ValueError("The window should not be larger than the added chirp")
+        
         dd_sample = sample
         dd_data = data
      
@@ -399,62 +406,61 @@ def recieve(input_data):
         shift = np.argmax(corr)
         
         if shift < 0:
-            print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample')
+            print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
         else:
             print('data is ' + str(np.round(shift,3)) + ' behind the sample')
-    
         
-            shifts = np.linspace(shift-50,shift+50,101).astype(int).tolist()
+        shifts = np.linspace(shift-window,shift+window,2*window+1).astype(int).tolist()
             
-            return shifts
-     
-# def shift_sync(sample, data, sample_freq, shift):
-     
-#     """
-#     This function takes two data sets, their sampled frequency,
-#     and the shift between them. 
-    
-#     It removes the shift between the beggining of the data (relative 
-#     to the sample). 
-    
-#     It returns the data with equal length as the sample (for plotting).
-#     """
-    
-#     ## shift should be more precise than sample rate
-#     # Round order of magnitude of shift close to sample precision and add 1 for safety  
-    
-#     shift_sign = shift
-#     #print(shift,type(shift))
-#     shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
-    
-#     # Find the difference between the two samples
-#     sample_shift = int(np.floor(shift * sample_freq))
-    
-#     #Assuming the data has a delay at the beginning
-    
-#     if shift_sign > 0:
+        return shifts
+           
+    def shift_sync(sample, data, sample_freq, shift):
+       
+      """
+      This function takes two data sets, their sampled frequency,
+      and the shift between them. 
+      
+      It removes the shift between the beggining of the data (relative 
+      to the sample). 
+      
+      It returns the data with equal length as the sample (for plotting).
+      """
+      
+      ## shift should be more precise than sample rate
+      # Round order of magnitude of shift close to sample precision and add 1 for safety  
+      
+      shift_sign = shift
+      #print(shift,type(shift))
+      shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
+      
+      # Find the difference between the two samples
+      sample_shift = int(np.floor(shift * sample_freq))
+      
+      #Assuming the data has a delay at the beginning
+      
+      if shift_sign > 0:
+                  
+          #remove the sample shift from the data, getting closer to when the sample began
+          data = data[sample_shift:]
+          
+          #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
+          data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
                 
-#         #remove the sample shift from the data, getting closer to when the sample began
-#         data = data[sample_shift:]
-        
-#         #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
-#         data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
-              
-        
-#     ###Assuming the data arrives faster than the sample (negative delay)
-#     ###This occurs if we estimate the shift too early. Feeding the signal again should
-#     ###trigger this and try and shift the data to the right
-    
-        
-#     elif shift_sign < 0:
-        
-#         #Pad sample_shift amount of zeroes until data and sample match    
-#         data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
-
-#         #remove the end samples
-#         data = data[:-sample_shift]
-        
-#     return data
+          
+      ###Assuming the data arrives faster than the sample (negative delay)
+      ###This occurs if we estimate the shift too early. Feeding the signal again should
+      ###trigger this and try and shift the data to the right
+      
+          
+      elif shift_sign < 0:
+          
+          #Pad sample_shift amount of zeroes until data and sample match    
+          data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
+  
+          #remove the end samples
+          data = data[:-sample_shift]
+          
+      return data
 
 def check_synchronisation(data,shifts):  
     
@@ -492,7 +498,7 @@ def check_synchronisation(data,shifts):
     return deviations[min(deviations.keys())]
 
 
-def add_noise(input_data, SNR=1000):
+def add_noise_db(input_data, SNR=1000):
     # Preprocess
     data = input_data
     data = np.array(data)
@@ -508,6 +514,30 @@ def add_noise(input_data, SNR=1000):
     data = [datum + noise_datum for datum, noise_datum in zip(data, noise)]
 
     return data
+
+def add_noise_amp(input_data, amplitude):
+    scale = max(input_data)
+    noise = scale * amplitude * np.random.normal(0, 1, len(input_data))
+    return [datum + noise_datum for datum, noise_datum in zip(input_data, noise)]
+
+
+# def create_preamble():
+#     """
+#     Creates a preamble of length 2L = N
+#     """
+#     data = "".join([str(random.randint(0, 1)) for i in range(CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE)])
+#     data = binary_to_words(data)
+#     data = words_to_constellation_values(data)
+#     data = constellation_values_to_data_blocks(data)
+#     data = assemble_block(data)
+#     for i in range(len(data[0])):
+#         if i % 2 != 0:
+#             data[0][i] = 0
+#     data = block_ifft(data)
+#     data = cyclic_prefix(data)
+#     data = data[0]
+#     data = [2 * datum for datum in data]
+#     return data
 
 def synchronise(input_data,CP):
     input_data = np.array(input_data)
@@ -532,123 +562,106 @@ def synchronise(input_data,CP):
                 Not calculating P0 and R0, to save time, assumed irrelevant
         """
     
-        P = [None]*(len(data))
-        R = [None]*(len(data))
-        M = [None]*len(data)
+            
+        P = [0]*(len(data))
+        R = [0]*(len(data))
+        M = [0]*len(data)
         
-        P[0] = 0
-        R[0] = 0
+        s=0
+        for m in range(L):
+           s +=  np.conj(data[m])*data[m+L]
         
-        for d in range(len(P)-2*L):        
+        P[0]= s
+        
+        s=0
+        for m in range(L):
+            s += (data[m+L])**2
+    
+        R[0] = s
+    
+        ##Non causal version for the first 2L elements
+        for d in range(2*L):        
             P[d+1] = P[d] + np.conj(data[d+L])*data[d+2*L] - np.conj(data[d])*data[d+L]
+        ##Causal version for the rest of the data
+        for d in range(2*L,len(P)-1):
+              P[d+1] = P[d] + np.conj(data[d-L])*data[d] - np.conj(data[d-2*L])*data[d-L]      
             
         """
         R-metric:
             Received energy of data. Operation for item d:
                 --> add all squared values of items between d+L and d+2L
         """
-        for d in range(len(R)-2*L):
+        ##Non causal version for the first 2L elements
+        for d in range(2*L):
             R[d+1] = R[d] + abs(data[d+2*L])**2 - abs(data[d+L])**2
         
-        for d in range(len(M)-2*L):
-            if R[d] != 0:
-              M[d] = (abs(P[d])**2)/(R[d]**2) 
-            else:
-                M[d] = 0
-                
-        # plt.subplot(211)   
-        # plt.plot(P,'b',label="P Metric")
-        # plt.plot(R,'r',label="R Metric")
+        ##Causal version for the rest of the data
+        for d in range(L,len(R)-1):
+            R[d+1] = R[d] + abs(data[d])**2 - abs(data[d-L])**2
+    
+        
+        """
+        M-metric: P squared over R squared
+    
+        """
+        ##Set a threshold for the minimum R used, to reduce wrong detections
+        R = np.array(R)    
+        energy_threshold = np.sqrt(np.mean(R**2))
+        
+        
+        for d in range(len(M)):
+            if R[d] > (energy_threshold):
+             M[d] = (abs(P[d])**2)/(R[d]**2) 
+                    
+        #plt.subplot(211)   
+        #plt.plot(P,'b',label="P Metric")
+        #plt.plot(R,'r',label="R Metric")
         # plt.subplot(212)
         # plt.plot(M,'y',label="M metric")
         # plt.legend()
         # plt.show()
-        
-        ##### Remove None values here
-        P = [datum for datum in P if datum != None]
-        
-        R = [datum for datum in R if datum != None]
-        
-        M = [datum for datum in M if datum != None]
-        
+    
         return np.array(P), np.array(R), np.array(M)
         
     
-    def synchro_samples(P,R,M,CP,N):
-    
+    def snc_start(P,R,M,ofdm_block_length,cp,threshold=0.9):
+
         # Low Pass Filter to smooth out plateau and noise
-        num = np.ones(CP)/CP
+        num = np.ones(cp)/cp
         
         den = (1,0)
         
         Mf = sg.lfilter(num, den, M)
          
-        # plt.subplot(212)    
-        # plt.plot(M,label='M Metric')
-        # plt.plot(Mf,'r',label = 'Filtered M Metric')
-        # plt.show()
-        
         #Differentiation turn peaks from the filtered metric into zero crossings
         
         Mdiff = np.diff(Mf)
         
-        plt.plot(Mdiff,'r',label = 'Diff Mf Metric')
-        plt.xlim(4230,5780)
-        plt.show()
-    
     
         ##Finds All zero crossings that match an M value above a threshold to account for noise
         # Threshold is 0.98, with noise it should be smaller
         
-        zero_crossings = ((Mdiff[1:] * Mdiff[:-1])<=0)
+        zero_crossings = ((Mdiff[:-1] * Mdiff[1:])<=0)*(M[1:-1]>threshold)
        
-        zero_crossings = zero_crossings*(M[1:-1]>0.98)
-      
-        ##Multple crossings due to noise. To avoid, after the first crossing we change the next 
-        # N+CP crossings into False. 
-        Len = len(zero_crossings)-N-CP-1
+        ##Multple crossings due to noise. To avoid, after the first crossing we skip the next 
+        # N+CP crossings. 
         
-        "NEEDS CLEAN UP"
-        for i in range(Len):
-            if zero_crossings[i] == True:
-                for j in range(i+1,N+CP+i+1):
-                    zero_crossings[j] = False
-        
-        start =  [i for i, val in enumerate(zero_crossings) if val] 
-        
-        ##Only take the first detection, but we should be testing all of them
-        
-        start=start[0]
-        
-        return start
+        ignored_crossings = np.ones(1+ofdm_block_length+cp) 
+        ignored_crossings[0] = 0  
+        ignore_times = (sg.lfilter(ignored_crossings, (1, ), zero_crossings) > 0).astype(int)
+        zero_crossings = zero_crossings * (ignore_times == 0)   
+            
     
+        return  [i for i, val in enumerate(zero_crossings) if val] 
+
     
+
     P, R, M = schmidl_cox(input_data, L)
-    start = synchro_samples(P,R,M,CP,N)
-    return start
+    start = snc_start(P,R,M,N,CP)
+    shift = check_synchronisation(input_data, start)
+    
+    return shift
 
-def create_preamble():
-    """
-    Creates a preamble of length 2L = N
-    """
-    data = "".join([str(random.randint(0, 1)) for i in range(CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE)])
-    data = binary_to_words(data)
-    data = words_to_constellation_values(data)
-    data = constellation_values_to_data_blocks(data)
-    data = assemble_block(data)
-    for i in range(len(data[0])):
-        if i % 2 != 0:
-            data[0][i] = 0
-    data = block_ifft(data)
-    data = cyclic_prefix(data)
-    data = data[0]
-    data = [2 * datum for datum in data]
-    return data
-
-def add_noise(input_data, amplitude):
-    scale = max(input_data)
-    noise = scale * amplitude * np.random.normal(0, 1, len(input_data))
-    return [datum + noise_datum for datum, noise_datum in zip(input_data, noise)]
 
 def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False):
     """
@@ -679,7 +692,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     # https://audio-modem.slack.com/archives/C013K2HGVL3
     data = output(data,save_to_file=True, suppress_audio=True)
 
-    data = add_noise(data, 0.05)
+    data = add_noise_amp(data, 0.05)
 
     plt.plot(data)
     plt.show()
