@@ -358,7 +358,7 @@ def output(input_data, save_to_file=False, suppress_audio=False):
                 f.write(str(i) + ',')
     return data
 
-def recieve(input_data):
+def receive(input_data):
     
     
     def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = True):
@@ -674,22 +674,62 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
         if set then does not output sound
     """
     
-    
     data = text_to_binary()
     data = fill_binary(data)
-    #data = xor_binary_and_key(data)
+    print(data[:10])
+    print("Length of data:", len(data))
     data = binary_to_words(data)
+    print("")
+    print(data[:10])
+    print("Length of words:", len(data))
     data = words_to_constellation_values(data)
+    data = np.array(data)
+    print("")
+    print(data[:10])
+    print("Length of constellation:", len(data))
     data = constellation_values_to_data_blocks(data)
+    print("")
+    print(data[0][:10])
+    print("Number of data blocks:", len(data))
+    print("Length of data blocks:", len(data[0]))
+    #data= data[:4096]
+    print(type(data))
     data = assemble_block(data)
+    print("")
+    print(data[0][:10])
+    print("Number of assembled blocks:", len(data))
+    print("Length of assembled blocks:", len(data[0]))
+    
     data = block_ifft(data)
+    print("")
+    print(data[0][:10])
+    print("Number of assembled blocks:", len(data))
+    print("Length of IFFT:", len(data[0]))
     data = cyclic_prefix(data)
-    #preamble = create_preamble()
-    #data = [preamble] + data
-    # https://audio-modem.slack.com/archives/C013K2HGVL3
-    data = output(data,save_to_file=True, suppress_audio=True)
+    print("")
+    print(data[0][:10])
+    print("Number of CPed blocks:", len(data))
+    print("Length of CPed blocks:", len(data[0]))
+    data = output(data,save_to_file=True,suppress_audio=True)
+    print("")
+    print("Padding adds 1 block before and 1 block after")
+    print("Number of output:", len(data))
 
-    data = add_noise_amp(data, 0.05)
+    # data = text_to_binary()
+    # data = fill_binary(data)
+    # #data = xor_binary_and_key(data)
+    # data = binary_to_words(data)
+    # data = words_to_constellation_values(data)
+    # data = constellation_values_to_data_blocks(data)
+    # data = assemble_block(data)
+    # data = block_ifft(data)
+    # data = cyclic_prefix(data)
+    # #preamble = create_preamble()
+    # #data = [preamble] + data
+    # # https://audio-modem.slack.com/archives/C013K2HGVL3
+    # data = output(data,save_to_file=True, suppress_audio=True)
+
+    # data = add_noise_amp(data, 0.05)
 
     plt.plot(data)
     plt.show()
@@ -698,11 +738,11 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     #data = data[start:]
     #plt.plot(data)
     #plt.show()
-
-    #recieve(data)
+    return data
 
 fig, axs = plt.subplots(4)
-transmit()
+data = transmit()
+#receive(data)
 
 def generate_key():
     random_string = "".join([str(random.randint(0, 1)) for i in range(DATA_BITS_PER_BLOCK)])
