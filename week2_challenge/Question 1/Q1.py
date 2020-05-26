@@ -84,22 +84,24 @@ def recieve(input_data, known_data):
         print('data is ' + str(np.round(lag,3)) + ' behind the sample')
 
  
-    plt.figure()
-    plt.plot(corr)
-    plt.plot(lag)
-    plt.title('Lag: ' + str(lag/sample_rate) + ' s or ' + str(lag) + ' samples')
-    plt.xlabel('Lag')
-    plt.ylabel('Correlation coeff')
-    plt.xlim(0,lag+10000)
-    plt.ylim(0,100)
-    plt.show()
+    # plt.figure()
+    # plt.plot(corr)
+    # plt.plot(lag)
+    # plt.title('Lag: ' + str(lag/sample_rate) + ' s or ' + str(lag) + ' samples')
+    # plt.xlabel('Lag')
+    # plt.ylabel('Correlation coeff')
+    # plt.xlim(0,lag+10000)
+    # plt.ylim(0,100)
+    # plt.show()
     
     
     data = data[lag+sample_rate:] #remove everything up to the end of the chirp
-    
+    #data = data[4096:] #remove first symbol
+   
     # plt.plot(data)
     # plt.xlim(0,120000)
-    print(data[sample_rate])
+    # plt.show()
+    #print(data[sample_rate])
     #return lag, dd_data, dd_sample 
     N = 4096
     CYCLIC_PREFIX = 0 
@@ -107,10 +109,14 @@ def recieve(input_data, known_data):
     block_number = int(np.ceil(len(data) / block_length))
     
     # 1) Split into blocks of 4096
+    modulated_data = np.array_split(data, block_number)
     
     # 3) DFT N = 4096
-    demodulated_data = np.fft.fft(data,N)
-    demodulated_data = np.array_split(demodulated_data,  block_number)
+    demodulated_data = [np.fft.fft(block,N) for block in modulated_data]
+    #demodulated_data = np.array_split(demodulated_data,  block_number)
+    #print((demodulated_data))
+    #print((demodulated_data[3]))
+    
     #freq_known_data = np.fft.fft(known_data,N)
     #half_first_block = demodulated_data[1:2048]
     
@@ -129,6 +135,9 @@ def recieve(input_data, known_data):
     #unconvolved_data = [np.divide(block, channel_resp) for block in demodulated_data]
     # # 4.3) Discard last half of each block
     unconvolved_data = [block[1:2048] for block in demodulated_data]
+    
+    
+    unconvolved_data = np.array(unconvolved_data)
     # 5) Decide on optimal decoder for constellations
     # 5.1) Define constellation
     constellation = {
@@ -138,37 +147,39 @@ def recieve(input_data, known_data):
         complex(+1, -1)/np.sqrt(2): (1, 0),
     }
     # 5.2) Minimum distance decode and map to bits
-    for block in unconvolved_data:
-        plt.scatter(block.real, block.imag)
+    plt.figure(2)
+    plt.scatter(unconvolved_data[:9].real, unconvolved_data[:9].imag)
     plt.show()
-    mapped_data = []
-    for block in unconvolved_data:
-        for data_symbol in block:
-        # Get distance to all symbols in constellation
-            distances = {abs(data_symbol - constellation_symbol): constellation_symbol for constellation_symbol in constellation.keys()}
-        # Get minimum distance
-            minimum_distance = min(distances.keys())
-        # Find symbol matching minimum distance
-            symbol = distances[minimum_distance]
-        # Append symbol data to mapped data array
-            mapped_data.append(constellation[symbol][0])
-            mapped_data.append(constellation[symbol][1])
+    
+    
+#     mapped_data = []
+#     for block in unconvolved_data:
+#         for data_symbol in block:
+#         # Get distance to all symbols in constellation
+#             distances = {abs(data_symbol - constellation_symbol): constellation_symbol for constellation_symbol in constellation.keys()}
+#         # Get minimum distance
+#             minimum_distance = min(distances.keys())
+#         # Find symbol matching minimum distance
+#             symbol = distances[minimum_distance]
+#         # Append symbol data to mapped data array
+#             mapped_data.append(constellation[symbol][0])
+#             mapped_data.append(constellation[symbol][1])
 
     
-    output_string = ""
-    print(len(mapped_data))
-    for bit in mapped_data:
-        output_string += str(bit)
-        output_data = [output_string[i : i + 8] for i in range(0, len(output_string), 8)]
-    print(output_data[:50])
-    # 6.2) Convert ints to bytearray
-    output_data = bytearray([int(i, 2) for i in output_data])
-# 6.3 Remove first 18 items
-    #output_data = output_data[18:]
-    #del output_data[0:18]
-# 6.4) Write output file
-    with open("output.txt", "wb") as f:
-        f.write(output_data)
+#     output_string = ""
+#     print(len(mapped_data))
+#     for bit in mapped_data:
+#         output_string += str(bit)
+#         output_data = [output_string[i : i + 8] for i in range(0, len(output_string), 8)]
+#     print(output_data[:50])
+#     # 6.2) Convert ints to bytearray
+#     output_data = bytearray([int(i, 2) for i in output_data])
+# # 6.3 Remove first 18 items
+#     #output_data = output_data[18:]
+#     #del output_data[0:18]
+# # 6.4) Write output file
+#     with open("output.txt", "wb") as f:
+#         f.write(output_data)
 
     '''
     # Get peaks

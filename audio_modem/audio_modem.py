@@ -345,97 +345,122 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     return data
 
 def recieve(input_data):
-    '''
-    data = input_data
-    delayed_data = [0] * N + input_data
-    diff = [datum - delayed_datum for datum, delayed_datum in zip(data, delayed_data)]
-    axs[1].plot(data)
-    axs[2].plot(delayed_data)
-    axs[3].plot(diff)
-    plt.show()
-    '''
-
-    axs[0].plot(input_data)
-
-    data = input_data
-    data = np.array(data).astype(np.float32)
-    data *= 1.0 / np.max(np.abs(data))
-    data = data.tolist()
-
-    # Correlate
-    delayed_data = [0] * N + data[:-N]
-    prod = [datum * delayed_datum for datum, delayed_datum in zip(data, delayed_data)]
-    axs[1].plot(prod)
-
-    # Accumulate
-    acc = [0]
-    for datum in prod:
-        acc.append(acc[-1] + datum)
-    axs[2].plot(acc)
-
-    # Differentiate
-    diff = np.diff(acc)
-    axs[3].plot(diff)
-
-    # Extremify
-    diff = [1 if datum >= 0 else -1 for datum in diff]
-    #axs[3].plot(diff)
-
-    # Detect symbols with a moving average window of width CP
-    avg = []
-    for i in range(len(diff[CP:])):
-        avg.append(np.average(diff[i : i + CP]))
-    avg = [datum ** 3 for datum in avg]
-    # Denoise
-    avg = np.array(avg).astype(np.float32)
-    avg *= 1.0 / np.max(np.abs(avg))
-    avg = avg.tolist()
-    axs[3].plot(avg)
     
-    '''
-    ### Moving average with filter
-    num = (np.ones(CP))/CP
-    den = (1,)
-    avg = sg.lfilter(num,den,diff)
-    ##or equvalently, convolve but it might change the length
-    #avg = sg.convolve(diff, num) #check if it helps to set mode to same'
-    '''
-    # Detect most common locations of cyclic prefix within the symbol
-    chunks = [avg[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(avg), PREFIXED_SYMBOL_LENGTH)]
-    chunks[-1] += [0] * (PREFIXED_SYMBOL_LENGTH - len(chunks[-1]))
-    scores = [0] * PREFIXED_SYMBOL_LENGTH
-    threshold = 0.5
-    for i in range(len(scores)):
-        for chunk in chunks:
-            if chunk[i] >= threshold:
-                scores[i] += 1
-    max_score= max(scores)
-    shifts = []
-    for i in range(len(scores)):
-        if scores[i] == max_score:
-            shifts.append(i)
-    shifts = [shift + CP for shift in shifts]
+    ##### NOTES FOR THE FUTURE: 
+    ##### 1) THIS FILE IS DIFFICULT TO PARSE DUE TO POOR FORMATTING (APOLOGIES)
+    ##### 2) SYNCHRONISATION ONLY WORKS IF DATA DRIFTS FORWARD
+    ##### 3) IF THE DATA DRIFTS BACKWARDS, ESTIMATES GIVE 0 DELAY,
+    ##### SYNCHRO FUNCTION SHIFTS NOTHING
+    ##### 4) CORRELATION DOESN'T WORK IN THAT CASE, BOTH MAX OR GRADIENT MAX FAIL
+    ##### 5) FOR  DELAYS BOTH IN THE BEGGINING AND END OF FILES, 
+    ##### ITERATION THROUGH THE shift AND SYNCHRO FUNCTIONS SHOULD: CLEAR THEM ALL,
+    ##### THEN ALIGN THE DATA WITH THE SAMPLE AND ADD ZEROES EVERYWHERE ELSE. 
+    ##### THIS WILL BE POSSIBLE IF BACKWARDS DRIFT IS HANDLED, NOT YET IMPLEMENTED
+    ##### 6) THE PLOTTING FUNCTION IS FOR TESTING ONLY, NOT REQUIRED
+    
+    def shift_finder(sample, data, sample_rate, plot=False, grad_mode = True):
+        
+        """
+        Takes a file to be sent and a received file and finds the difference 
+        by which the received file is delayed.
+        
+        If plot is set, then it will produce a matplotlib plot of the output
+        
+        Grad Mode: True or False.
+        
+        If true, it finds the double gradient before correlating. 
+        
+        If False it just finds correleation between given inputs.
+        
+        Gradient estimation has yet to be tested fully.
+            
+        """
+    
+        
+       
+        dd_sample = sample
+        dd_data = data
+     
+        if grad_mode: 
+        ###Using the second derivative of signals
+            dd_sample = np.gradient(np.gradient(sample))
+            dd_data = np.gradient(np.gradient(data))
+     
+        #Correlation between sample and data, normalised
+        corr = sg.correlate(dd_data, dd_sample, mode='full')
+        
+        #This normalised the corr, but it gives errors
+        #corr = corr / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
+        
+        #Create and shift x axis from -0.5 to 0.5
+        #delay_arr = np.linspace(-0.5*n/sample_rate, 0.5*n/sample_rate, n)
+        
+        #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
+        shift = np.argmax(corr)
+        
+        if shift < 0:
+            print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample')
+        else:
+            print('data is ' + str(np.round(shift,3)) + ' behind the sample')
+    
+        
+            shifts = np.linspace(shift-50,shift+50,101).astype(int).tolist()
+            
+            return shifts
+     
+# def shift_sync(sample, data, sample_freq, shift):
+     
+#     """
+#     This function takes two data sets, their sampled frequency,
+#     and the shift between them. 
+    
+#     It removes the shift between the beggining of the data (relative 
+#     to the sample). 
+    
+#     It returns the data with equal length as the sample (for plotting).
+#     """
+    
+#     ## shift should be more precise than sample rate
+#     # Round order of magnitude of shift close to sample precision and add 1 for safety  
+    
+#     shift_sign = shift
+#     #print(shift,type(shift))
+#     shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
+    
+#     # Find the difference between the two samples
+#     sample_shift = int(np.floor(shift * sample_freq))
+    
+#     #Assuming the data has a delay at the beginning
+    
+#     if shift_sign > 0:
+                
+#         #remove the sample shift from the data, getting closer to when the sample began
+#         data = data[sample_shift:]
+        
+#         #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
+#         data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
+              
+        
+#     ###Assuming the data arrives faster than the sample (negative delay)
+#     ###This occurs if we estimate the shift too early. Feeding the signal again should
+#     ###trigger this and try and shift the data to the right
+    
+        
+#     elif shift_sign < 0:
+        
+#         #Pad sample_shift amount of zeroes until data and sample match    
+#         data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
 
-    # Create windows
-    # (for graphical reasons only)
-    windows = [0] * len(data)
-    for i in range(len(windows)):
-        if i % PREFIXED_SYMBOL_LENGTH == 0:
-            # Place marker for window starts
-            windows[i] = 32768
-            # Put marker for cyclic prefixes
-            try:
-                windows[i + CP] = 16384
-            except:
-                pass
-            try:
-                windows[i - CP] = 16384
-            except:
-                pass
+#         #remove the end samples
+#         data = data[:-sample_shift]
+        
+#     return data
 
-
+def check_synchronisation(data,shifts):  
+    
     # For each possible shift value, retrioeve the first OFDM symbol
     deviations = {}
+
     for shift in shifts:
         # Shift data to synchronise
         shifted_data = data[shift:]
@@ -464,70 +489,8 @@ def recieve(input_data):
         shifted_data = [datum for datum in shifted_data if datum >= 0 and datum <= np.pi / 2]
         deviations[np.std(shifted_data)] = shift
 
-    shift = deviations[min(deviations.keys())]
+    return deviations[min(deviations.keys())]
 
-    # Plot windows shifted by shift
-    windows = [0] * shift + windows[:-shift]
-    axs[0].plot(windows)
-    plt.show()
-
-    # Shift data to synchronise
-    data = data[shift:]
-    data = [data[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(data), PREFIXED_SYMBOL_LENGTH)]
-
-    # Remove all data blocks whose power is less than the normalised cutoff power
-    power_list = [np.sqrt(np.mean(np.square(block))) for block in data]
-    power_list = np.array(power_list)
-    power_list = power_list - np.min(power_list)
-    power_list *= 1.0 / np.max(power_list)
-    power_list = power_list.tolist()
-    cutoff = 0.5
-    power_list = [0 if datum < cutoff else 1 for datum in power_list]
-    data = [data[i] for i in range(len(data)) if power_list[i] == 1]
-
-    for block in data:
-        block = block[CP:]
-        block = np.fft.fft(block, n=N)
-        block = block[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK]
-        plt.scatter(block.real, block.imag)
-    plt.show()
-
-    ###DO CHANNEL ESTIMATION HERE?##
-    ## 1) Extract pilots from the signal as we know their positions
-    ## 2) Average of each eqalised pilot over all OFDM symbols received
-    ## 3) Interpolate over the data for channel estimation::
-    ##      a) Could do interpolations between real and img data separately
-    ##      b) Or could do interpolations between magnitude and phase separately
-    ## 4) Each of the data carriers within each OFDM symbol is then equalised at its
-    ##    corresponding frequency using the complex interpolated channel estimate.
-    ##    Since the channel estimate is complex we can equalise both in magnitude and phase.
-    """ Don't get step four """
-
-    # Minimum distance map
-    for i in range(len(data)):
-        block = data[i]
-        output = []
-        for datum in block:
-            distances = {abs(datum - value) : key for key, value in CONSTELLATION.items()}
-            min_distance = min(distances)
-            value = distances[min_distance]
-            output.append(distances[min_distance])
-        # Remove Pilot Symbols
-        for j in range(len(output)):
-            if j % PILOT_FREQUENCY == 0:
-                output[j] = None
-        output = [datum for datum in output if datum is not None]
-        data[i] = output
-
-    # Flatten and join to one string
-    data = [datum for block in data for datum in block]
-    data = "".join(data)
-
-    # Write data
-    data = [data[i : i + 8] for i in range(0, len(data), 8)]
-    data = bytearray([int(i, 2) for i in data])
-    with open("output.txt", "wb") as f:
-        f.write(data)
 
 def add_noise(input_data, SNR=1000):
     # Preprocess

@@ -19,6 +19,7 @@ import numpy as np
 modulated_data = np.genfromtxt('data.csv', delimiter='  ')
 channel = np.genfromtxt('channel.csv', delimiter='  ')
 
+
 # 0) Set up constants
 N = 1024
 CYCLIC_PREFIX = 32
@@ -30,7 +31,8 @@ modulated_data = np.array_split(modulated_data, block_number)
 
 # 2) Discard cyclic prefixes (first 32 bits)
 modulated_data = [block[CYCLIC_PREFIX:] for block in modulated_data]
-
+print(len(modulated_data))
+print(len(modulated_data[2]))
 # 3) DFT N = 1024
 demodulated_data = np.fft.fft(modulated_data, N)
 
