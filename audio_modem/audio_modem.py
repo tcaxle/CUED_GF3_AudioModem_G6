@@ -72,7 +72,10 @@ FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
 PREFIXED_SYMBOL_LENGTH = N + CP #4800
 CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4 * PADDING) / 2) #2047
 DATA_BITS_PER_BLOCK = CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE #4094
-
+BLOCK_LENGTH = 180
+CHIRP_LEGTH = 5
+KNOWN_BLOCK_LENGTH = 20
+FRAME_LENGTH = (CHIRP_LEGTH + KNOWN_BLOCK_LENGTH + BLOCK_LENGTH + KNOWN_BLOCK_LENGTH)*PREFIXED_SYMBOL_LENGTH
 """
 sounddevice settings
 --------------------
@@ -80,7 +83,7 @@ sounddevice settings
 sd.default.samplerate = SAMPLE_FREQUENCY
 sd.default.channels = 1
 
-def sweep(f_start=500, f_end=2000, sample_rate=SAMPLE_FREQUENCY,duration=5*N*CP, channels=1):
+def sweep(f_start=500, f_end=2000, sample_rate=SAMPLE_FREQUENCY,duration=5*(N+CP), channels=1):
     """
     Returns a frequency sweep
     """
@@ -91,10 +94,11 @@ def sweep(f_start=500, f_end=2000, sample_rate=SAMPLE_FREQUENCY,duration=5*N*CP,
     # Produce frequency sweep
     f_sweep = sg.chirp(time_array, f_start, duration, f_end)
     # Normalise sweep
-    f_sweep *= 32767 / np.max(np.abs(f_sweep))
-    f_sweep = f_sweep.astype(np.int16)
+    #f_sweep *= 1 / np.max(np.abs(f_sweep))
+    #f_sweep = f_sweep.astype(np.int16)
     
     return f_sweep
+
 
 def text_to_binary(input_file="input.txt"):
     """
@@ -256,8 +260,7 @@ def constellation_values_to_data_blocks(input_data):
     output_data : LIST of LIST of COMPLEX
         splits data into blocks of length CONSTELLATION_VALUES_PER_BLOCK
     """
-    input_data = input_data.tolist()
-        
+    input_data = input_data        
     # Split into blocks
     output_data = [input_data[i : i + CONSTELLATION_VALUES_PER_BLOCK] for i in range(0, len(input_data), CONSTELLATION_VALUES_PER_BLOCK)]
     
@@ -297,6 +300,7 @@ def assemble_block(input_data):
     mid = [0]
     return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
 
+
 def block_ifft(input_data):
     """
     Parameters
@@ -324,6 +328,31 @@ def cyclic_prefix(input_data):
         list of transformed blocks with cyclic prefix
     """
     return [block[-CP:] + block for block in input_data]
+
+def assemble_frame(input_data):
+    #input_data = List of List of Float
+    #known_data = List of List of Float
+    #Deal with known data
+    
+    chirp = [sweep(f_start=2000,f_end=40000)] #Length 5(N+CP)
+    
+    known_data = get_known_data()
+    
+    #List of List of List of Float
+    output_data = [input_data[i : i + BLOCK_LENGTH] for i in range(0, len(input_data), BLOCK_LENGTH)]
+    
+    #Needs to be appended with zeroes
+    output_data[-1] += "0" * (BLOCK_LENGTH - len(output_data[-1]))
+
+        
+    frames = [chirp + known_data + block + known_data for block in output_data]
+     
+    #Flatten frames
+    
+    for i,frame in enumerate(frames):
+        frames[i]  = [item for sublist in frame for item in sublist]
+    
+    return frames
 
 def output(input_data, save_to_file=False, suppress_audio=False):
     """
@@ -518,6 +547,7 @@ def add_noise_amp(input_data, amplitude):
 
 
 def create_preamble():
+    
     """
     Creates a preamble of length 2L = N
     """
@@ -534,6 +564,21 @@ def create_preamble():
     data = data[0]
     data = [2 * datum for datum in data]
     return data
+
+def get_known_data():
+    
+    with open("key.txt", "r") as f:
+        data = f.read()
+    
+    data = binary_to_words(data)
+    data = words_to_constellation_values(data)
+    data = constellation_values_to_data_blocks(data)
+    data = assemble_block(data)
+    data = block_ifft(data)
+    data = cyclic_prefix(data)
+    return data[0]    
+
+    
 
 def synchronise(input_data,CP):
     input_data = np.array(input_data)
@@ -687,6 +732,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     #preamble = create_preamble()
     #data = [preamble] + data
     # https://audio-modem.slack.com/archives/C013K2HGVL3
+    data = assemble_frame(data)
     data = output(data,save_to_file=True, suppress_audio=True)
 
     data = add_noise_amp(data, 0.05)

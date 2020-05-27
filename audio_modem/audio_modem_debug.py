@@ -73,6 +73,10 @@ FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
 PREFIXED_SYMBOL_LENGTH = N + CP #4800
 CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4 * PADDING) / 2) #2047
 DATA_BITS_PER_BLOCK = CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE #4094
+BLOCK_LENGTH = 180
+CHIRP_LEGTH = 5
+KNOWN_BLOCK_LENGTH = 20
+FRAME_LENGTH = (CHIRP_LEGTH + KNOWN_BLOCK_LENGTH + BLOCK_LENGTH + KNOWN_BLOCK_LENGTH)*PREFIXED_SYMBOL_LENGTH
 
 """
 sounddevice settings
@@ -258,7 +262,6 @@ def constellation_values_to_data_blocks(input_data):
     output_data : LIST of LIST of COMPLEX
         splits data into blocks of length CONSTELLATION_VALUES_PER_BLOCK
     """
-    input_data = input_data.tolist()
         
     # Split into blocks
     output_data = [input_data[i : i + CONSTELLATION_VALUES_PER_BLOCK] for i in range(0, len(input_data), CONSTELLATION_VALUES_PER_BLOCK)]
@@ -294,6 +297,8 @@ def assemble_block(input_data):
     output_data : LIST of LIST of COMPLEX
         list of blocks assembled ready for IDFT
     """
+    if not type(input_data) == list:
+        input_data = input_data.tolist()
 
     padding = [0] * PADDING
     dc = [0]
@@ -327,6 +332,50 @@ def cyclic_prefix(input_data):
         list of transformed blocks with cyclic prefix
     """
     return [block[-CP:] + block for block in input_data]
+
+def assemble_frame(input_data):
+    #input_data = List of List of Float
+    #known_data = List of List of Float
+    #Deal with known data
+    
+    def norm(input_data): 
+       input_data = np.array(input_data).astype(np.float32)
+       input_data *= 1/np.max(np.abs(input_data))
+       return input_data.tolist()
+    
+    
+    input_data = norm(input_data)
+    
+    
+    
+    chirp = sweep(f_start=2000,f_end=4000).tolist() #Length 5(N+CP)
+    
+   
+    
+    known_data = norm(get_known_data())
+    
+    
+    
+    #List of List of Float
+    output_data = [input_data[i : i + BLOCK_LENGTH] for i in range(0, len(input_data), BLOCK_LENGTH)][0]
+    
+    #Needs to be appended with zeroes
+    output_data[-1] += "0" * (BLOCK_LENGTH - len(output_data[-1]))
+    
+    
+    frames = [chirp + known_data + block + known_data for block in output_data]
+    
+    print(np.max(chirp))
+    print(np.max(known_data))
+    print(np.max(input_data))
+    
+     
+    #Flatten frames
+    
+    # for i,frame in enumerate(frames):
+    #     frames[i]  = [item for sublist in frame for item in sublist]
+    
+    return frames
 
 def output(input_data, save_to_file=False, suppress_audio=False):
     """
@@ -371,8 +420,6 @@ def output(input_data, save_to_file=False, suppress_audio=False):
 
 
  
-    
-
 
 #######RECEIVER########
     
@@ -551,6 +598,20 @@ def create_preamble():
     data = [2 * datum for datum in data]
     return data
 
+
+def get_known_data():
+    
+    with open("key.txt", "r") as f:
+        data = f.read()
+
+    data = binary_to_words(data)
+    data = words_to_constellation_values(data)
+    data = constellation_values_to_data_blocks(data)
+    data = assemble_block(data)
+    data = block_ifft(data)
+    data = cyclic_prefix(data)
+    return data[0]    
+
 def synchronise(input_data,CP):
     input_data = np.array(input_data)
 
@@ -692,6 +753,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     
     data = text_to_binary()
     data = fill_binary(data)
+    data = xor_binary_and_key(data)
     print(data[:10])
     print("Length of data:", len(data))
     data = binary_to_words(data)
@@ -699,7 +761,6 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     print(data[:10])
     print("Length of words:", len(data))
     data = words_to_constellation_values(data)
-    data = np.array(data)
     print("")
     print(data[:10])
     print("Length of constellation:", len(data))
@@ -728,33 +789,39 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     print("Length of CPed blocks:", len(data[0]))
     
     
-    chirp = sweep()
+    chirp = sweep(f_start=2000,f_end=4000)
     
-    data = [chirp.tolist()] + data
+    # data = [chirp.tolist()] + data
+    
+    data = assemble_frame(data)
+    
+    print("\n",type(data),"\n",type(data[0]))
+    
+    
     
     data = output(data,save_to_file=True,suppress_audio=True)
     
     
-    print("")
-    print("Padding adds 1 block before and 1 block after")
-    print("Number of output:", len(data))
-    print(data[15000:15430])
+    # print("")
+    # print("Padding adds 1 block before and 1 block after")
+    # print("Number of output:", len(data))
+    # print(data[15000:15430])
     
-    print(chirp[:30])
-    print(type(chirp))
-    print(type(data))
-    print(len(chirp))
+    # print(chirp[:30])
+    # print(type(chirp))
+    # print(type(data))
+    # print(len(chirp))
     
     #data = np.insert(data,int(0.1*SAMPLE_FREQUENCY),chirp)
     #wav_output(data,SAMPLE_FREQUENCY)
-    wav_output(chirp,SAMPLE_FREQUENCY)
+    # wav_output(chirp,SAMPLE_FREQUENCY)
     
     ##Needed only on the very end
     #data = np.insert(data,-int(0.1*SAMPLE_FREQUENCY),chirp)
     
-    #print(data[24000+4790:24000+4820])
-    print(type(data))
-    print(len(data))
+    # #print(data[24000+4790:24000+4820])
+    # print(type(data))
+    # print(len(data))
     
     # data = text_to_binary()
     # data = fill_binary(data)
@@ -791,9 +858,9 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     plt.legend()
     plt.show()    
 
-    print(shifts)
+    # print(shifts)
     
-    pass
+
 
     
 #fig, axs = plt.subplots(1)
