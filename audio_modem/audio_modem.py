@@ -85,6 +85,32 @@ sounddevice settings
 sd.default.samplerate = SAMPLE_FREQUENCY
 sd.default.channels = 1
 
+
+def check_typing(input_data):
+    
+    def recur(input_data):
+    
+        try:
+            print("\nType: {}\nLength: {}".format(type(input_data), len(input_data)))
+        except:
+            print("\nType: {}".format(type(input_data)))
+    
+        if type(input_data) == list:
+            type_zero = type(input_data[0])
+            for item in input_data:
+                if type(item) != type_zero:
+                    raise Exception("Inconsistent List!")
+            if type_zero == list:
+                recur(input_data[0])
+            else:
+                print("\nType: {}".format(type_zero))
+    
+    recur(input_data)
+    
+    
+#######TRANSMITTER########
+
+
 def sweep(f_start=2000, f_end=4000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP), channels=1):
     """
     Returns a frequency sweep
@@ -101,6 +127,32 @@ def sweep(f_start=2000, f_end=4000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP
     # f_sweep = f_sweep.astype(np.int16)
     
     return f_sweep
+
+def get_known_data(save=False):
+    
+    with open("random_bits.txt", "r") as f:
+        data = f.read()
+        
+    data = data[:N]
+    # We need the equivalent of 1 OFDM symbol length and 
+    # We can repeat it 20 times as needed
+    # Where would it be best to cut-off uneccesary data? In the file itself?
+
+    data = binary_to_words(data)
+    data = words_to_constellation_values(data)
+    data = constellation_values_to_data_blocks(data)
+    data = assemble_block(data)
+    data = block_ifft(data)
+    data = cyclic_prefix(data)    
+    if save:
+        with open('known_data.txt','w') as f:
+            for i in range(len(data[0])):
+                f.write(str(data[0][i]) + ',')
+
+    #Don't quite get why we need the first element specifically. Is this due to 
+    #the cyclic prefix operation?
+
+    return data[0]    
 
 def text_to_binary(input_file="input.txt"):
     """
@@ -348,25 +400,50 @@ def assemble_frame(input_data):
     
     input_data = norm(input_data)
     
+    #We have 7 blocks so 7P floats
+    #We want to make 1 frame with the 7P floats + 173P zeroes
+    
+    #we have x blocks of ofdm symbols
+    #we need ot divide by 180 so we get x/180 frames +1 frame if there's remainder
+    
+    no_frames = int(np.ceil(len(input_data)/BLOCK_LENGTH))
+    
+    #check_typing(input_data)
+    
+    frames = [None]*no_frames
+    #We are now getting 7 frames with P floats in each frame, using only the first P frame
     
     chirp = sweep(f_start=2000,f_end=4000).tolist() #Length 5(N+CP)
     
-    
+
     known_data = norm(20*get_known_data()) #Length 20(N+CP)
-        
+
+    #check_typing(input_data)
+    #List of List of List of Float
+    output_data = [input_data[i : i + BLOCK_LENGTH] for i in range(0, len(input_data), BLOCK_LENGTH)]
+   
     #List of List of Float
-    output_data = [input_data[i : i + BLOCK_LENGTH] for i in range(0, len(input_data), BLOCK_LENGTH)][0]
-    
+    for i,frame in enumerate(output_data):
+        output_data[i]  = [item for sublist in frame for item in sublist]
+   
+   # zero_block =[0]*PREFIXED_SYMBOL_LENGTH
+
+     
     #Needs to be appended with zeroes
-    output_data[-1] += "0" * (BLOCK_LENGTH - len(output_data[-1]))
+    output_data[-1] += [0.0] * (PREFIXED_SYMBOL_LENGTH*BLOCK_LENGTH - len(output_data[-1]))
+    # for i in range(BLOCK_LENGTH-len(output_data)):
+    #     output_data.append(zero_block)
     
+    #check_typing(output_data)
+    
+    #output_data = [floats for frames in output_data for floats in blocks]
+    #check_typing(output_data)
     
     frames = [chirp + known_data + block + known_data for block in output_data]
-         
+   
+    #check_typing(frames)     
     #Flatten frames
     
-    # for i,frame in enumerate(frames):
-    #     frames[i]  = [item for sublist in frame for item in sublist]
     
     return frames
 
@@ -390,29 +467,132 @@ def output(input_data, save_to_file=False, suppress_audio=False):
             data[i] = np.array(block).astype(np.float32)
             # Normalise to 16-bit range
             data[i] *= 32767 / np.max(np.abs(block))
-
+            data[i] = data[i].tolist()
 
     # Pad with 0.1s of silence either side of transmitted data
     silent_padding = [0] * int(SAMPLE_FREQUENCY * 0.1)
     data = silent_padding + [datum for block in data for datum in block] + silent_padding
+    
     # # convert to 16-bit data
     # data = np.array(data).astype(np.float32)
     # # Normalise to 16-bit range
     # data *= 32767 / np.max(np.abs(data))
     # # start playback
     #axs[0].plot(data)
+    
     if not suppress_audio:
         sd.play(data)
         sd.wait()
+    
     if save_to_file:
           # Write data
         with open('output.txt', 'w') as f:
             for i in data:
                 f.write(str(i) + ',')
+    
     return data
 
+def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False,DEBUG=False):
+    """
+    Parameters
+    ----------
+    input_file : STRING
+        name of the input file
+    input_type : STRING
+        "txt" for text input
+        "wav" for wav input
+    save_to_file : BOOL
+        if set then outputs data "output.txt"
+    suppress_audio : BOOL
+        if set then does not output sound
+    """
+    if DEBUG:    
+        data = text_to_binary()
+        data = fill_binary(data)
+        data = xor_binary_and_key(data)
+        print(data[:10])
+        print("Length of data:", len(data))
+        data = binary_to_words(data)
+        print("")
+        print(data[:10])
+        print("Length of words:", len(data))
+        data = words_to_constellation_values(data)
+        print("")
+        print(data[:10])
+        print("Length of constellation:", len(data))
+        data = constellation_values_to_data_blocks(data)
+        print("")
+        print(data[0][:10])
+        print("Number of data blocks:", len(data))
+        print("Length of data blocks:", len(data[0]))
+        #data= data[:4096]
+        print(type(data))
+        data = assemble_block(data)
+        print("")
+        print(data[0][:10])
+        print("Number of assembled blocks:", len(data))
+        print("Length of assembled blocks:", len(data[0]))
+        
+        data = block_ifft(data)
+        print("")
+        print(data[0][:10])
+        print("Number of assembled blocks:", len(data))
+        print("Length of IFFT:", len(data[0]))
+        data = cyclic_prefix(data)
+        print("")
+        print(data[0][:10])
+        print("Number of CPed blocks:", len(data))
+        print("Length of CPed blocks:", len(data[0]))
+        
+        
+        chirp = sweep(f_start=2000,f_end=4000)
+        
+        data = assemble_frame(data)
+        
+        print("\n",type(data),"\n",type(data[0]))
+        print("\n",len(data),"\n",len(data[0]))
+        return data
+        
+        # data = output(data,save_to_file=False,suppress_audio=True)
+        # print("")
+        # print("Padding adds 1 block before and 1 block after")
+        # print("Number of output:", len(data))
+        # print(data[15000:15430])
+        
+        # wav_output(data,SAMPLE_FREQUENCY)
+        # wav_output(chirp,SAMPLE_FREQUENCY)
+    
+    
+    
+    
+    data = text_to_binary()
+    data = fill_binary(data)
+    data = xor_binary_and_key(data)
+    data = binary_to_words(data)
+    data = words_to_constellation_values(data)
+    data = constellation_values_to_data_blocks(data)
+    data = assemble_block(data)
+    data = block_ifft(data)
+    data = cyclic_prefix(data)
+    data = assemble_frame(data)
+    data = output(data,save_to_file=False, suppress_audio=True)
 
- 
+    return data
+    ###Schmidl and Cox, Deprecated
+    # #preamble = create_preamble()
+    # #data = [preamble] + data
+    
+    #data = add_noise_db(data, 3)
+    
+    #start = synchronise(data,CP)
+    #data = data[start:]
+    #plt.plot(data)
+    #plt.show()
+    #return data
+
+    
+#fig, axs = plt.subplots(1)
+
 
 #######RECEIVER########
     
@@ -592,32 +772,6 @@ def create_preamble():
     return data
 
 
-def get_known_data(save=False):
-    
-    with open("random_bits.txt", "r") as f:
-        data = f.read()
-        
-    data = data[:N]
-    # We need the equivalent of 1 OFDM symbol length and 
-    # We can repeat it 20 times as needed
-    # Where would it be best to cut-off uneccesary data? In the file itself?
-
-    data = binary_to_words(data)
-    data = words_to_constellation_values(data)
-    data = constellation_values_to_data_blocks(data)
-    data = assemble_block(data)
-    data = block_ifft(data)
-    data = cyclic_prefix(data)    
-    if save:
-        with open('known_data.txt','w') as f:
-            for i in range(len(data[0])):
-                f.write(str(data[0][i]) + ',')
-
-    #Don't quite get why we need the first element specifically. Is this due to 
-    #the cyclic prefix operation?
-
-    return data[0]    
-
 def synchronise(input_data,CP):
     input_data = np.array(input_data)
 
@@ -742,124 +896,41 @@ def synchronise(input_data,CP):
     return shift
 
 
-def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False):
-    """
-    Parameters
-    ----------
-    input_file : STRING
-        name of the input file
-    input_type : STRING
-        "txt" for text input
-        "wav" for wav input
-    save_to_file : BOOL
-        if set then outputs data "output.txt"
-    suppress_audio : BOOL
-        if set then does not output sound
-    """
-    
-    data = text_to_binary()
-    data = fill_binary(data)
-    data = xor_binary_and_key(data)
-    print(data[:10])
-    print("Length of data:", len(data))
-    data = binary_to_words(data)
-    print("")
-    print(data[:10])
-    print("Length of words:", len(data))
-    data = words_to_constellation_values(data)
-    print("")
-    print(data[:10])
-    print("Length of constellation:", len(data))
-    data = constellation_values_to_data_blocks(data)
-    print("")
-    print(data[0][:10])
-    print("Number of data blocks:", len(data))
-    print("Length of data blocks:", len(data[0]))
-    #data= data[:4096]
-    print(type(data))
-    data = assemble_block(data)
-    print("")
-    print(data[0][:10])
-    print("Number of assembled blocks:", len(data))
-    print("Length of assembled blocks:", len(data[0]))
-    
-    data = block_ifft(data)
-    print("")
-    print(data[0][:10])
-    print("Number of assembled blocks:", len(data))
-    print("Length of IFFT:", len(data[0]))
-    data = cyclic_prefix(data)
-    print("")
-    print(data[0][:10])
-    print("Number of CPed blocks:", len(data))
-    print("Length of CPed blocks:", len(data[0]))
-    
-    
-    chirp = sweep(f_start=2000,f_end=4000)
-    
-    data = assemble_frame(data)
-    
-    print("\n",type(data),"\n",type(data[0]))
-    
-    
-    data = output(data,save_to_file=True,suppress_audio=True)
-    
-    
-    # print("")
-    # print("Padding adds 1 block before and 1 block after")
-    # print("Number of output:", len(data))
-    # print(data[15000:15430])
-    
-    
-    #wav_output(data,SAMPLE_FREQUENCY)
-    # wav_output(chirp,SAMPLE_FREQUENCY)
-    
-    # data = text_to_binary()
-    # data = fill_binary(data)
-    # #data = xor_binary_and_key(data)
-    # data = binary_to_words(data)
-    # data = words_to_constellation_values(data)
-    # data = constellation_values_to_data_blocks(data)
-    # data = assemble_block(data)
-    # data = block_ifft(data)
-    # data = cyclic_prefix(data)
-    # #preamble = create_preamble()
-    # #data = [preamble] + data
-    # # https://audio-modem.slack.com/archives/C013K2HGVL3
-    # data = output(data,save_to_file=True, suppress_audio=True)
-
-    #data = add_noise_db(data, 3)
-    
-    ###Schmidl and Cox, Deprecated
-    #start = synchronise(data,CP)
-    #data = data[start:]
-    #plt.plot(data)
-    #plt.show()
-    #return data
-        
-    shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
-    
-    plt.figure()
-    plt.plot(data)
-    plt.axvline(shifts,color='r',label='Detected chirp end = ' + str(shifts[0]))
-    plt.title("SNR 3dB")
-    plt.xlabel("Samples")
-    plt.ylabel("Magnitude")
-    plt.xlim(5000,6000)
-    plt.legend()
-    plt.show()    
-
-    print(shifts)
-    
-
-
-    
-#fig, axs = plt.subplots(1)
-
-tx_data = transmit()
 
 
 def generate_key():
     random_string = "".join([str(random.randint(0, 1)) for i in range(DATA_BITS_PER_BLOCK)])
     with open("key.txt", "w") as f:
         f.write(random_string)
+
+
+
+
+def receiver(data):        
+    
+    print(len(data))
+    chirp = sweep()
+    
+    shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
+    # q=24000
+    # plots=data[:2]
+    # x = np.linspace(0, len(plots),len(plots[::q]))
+    plt.figure()
+    
+    plt.plot(data)
+    plt.axvline(shifts,color='r',label='Detected chirp end = ' + str(shifts[0]))
+    plt.title("SNR 3dB")
+    plt.xlabel("Samples")
+    plt.ylabel("Magnitude")
+    plt.legend()
+    plt.show()    
+
+    #print(shifts)
+    
+    return shifts
+
+
+###CALLING THE FUNCTIONS##
+tx_data = transmit()
+
+shifts = receiver(tx_data)
