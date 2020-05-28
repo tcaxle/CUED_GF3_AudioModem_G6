@@ -85,7 +85,6 @@ sounddevice settings
 sd.default.samplerate = SAMPLE_FREQUENCY
 sd.default.channels = 1
 
-
 def check_typing(input_data):
     
     def recur(input_data):
@@ -133,7 +132,7 @@ def get_known_data(save=False):
     with open("random_bits.txt", "r") as f:
         data = f.read()
         
-    data = data[:N]
+    data = data[: DATA_BITS_PER_BLOCK]
     # We need the equivalent of 1 OFDM symbol length and 
     # We can repeat it 20 times as needed
     # Where would it be best to cut-off uneccesary data? In the file itself?
@@ -626,7 +625,7 @@ def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = T
  
     #Correlation between sample and data, normalised
     corr = sg.correlate(dd_data, dd_sample, mode='full')
-    
+
     #This normalised the corr, but it gives errors
     #corr = corr / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
     
@@ -903,34 +902,105 @@ def generate_key():
     with open("key.txt", "w") as f:
         f.write(random_string)
 
+def channel_estimation(symbols, known_block):
 
+    # Take average value of H determined for each block
+    symbols = np.average(symbols, axis=0)
 
+    symbols_freq = np.fft.fft(symbols, N)
 
-def receiver(data):        
-    
-    print(len(data))
+    known_block_freq = np.fft.fft(known_block, N)
+
+    channel_response_freq = np.true_divide(symbols_freq, known_block_freq, out=np.zeros_like(symbols_freq),
+                                           where=known_block_freq != 0)
+
+    return channel_response
+
+def receiver(data):
+
+    known_symbol = get_known_data()
+
     chirp = sweep()
     
     shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
+    shift = shifts[0] + 1
+
+    # Remove Stuff before and after data and split into frames
+    data = data[shift - CHIRP_LENGTH * PREFIXED_SYMBOL_LENGTH:]
+    data = [data[i : i + FRAME_LENGTH] for i in range(0, len(data), FRAME_LENGTH)]
+    if len(data[-1]) != FRAME_LENGTH:
+        del data[-1]
+    # Remove the chirp
+    data = [frame[CHIRP_LENGTH * PREFIXED_SYMBOL_LENGTH :] for frame in data]
+    for frame in data:
+        # Split into symbols
+        frame = [frame[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(frame), PREFIXED_SYMBOL_LENGTH)]
+        estimation_symbols = frame[:KNOWN_BLOCK_LENGTH] + frame[-KNOWN_BLOCK_LENGTH:]
+        data_symbols = frame[KNOWN_BLOCK_LENGTH : - KNOWN_BLOCK_LENGTH]
+        channel_response = channel_estimation(estimation_symbols, known_symbol)
+        print(channel_response)
+        plt.plot(channel_response)
+
+    plt.show()
+
+
+
+
+"""
+    cut_data = data[shift : shift + 220 * PREFIXED_SYMBOL_LENGTH]
+
     # q=24000
     # plots=data[:2]
     # x = np.linspace(0, len(plots),len(plots[::q]))
-    plt.figure()
+    #plt.figure()
     
-    plt.plot(data)
-    plt.axvline(shifts,color='r',label='Detected chirp end = ' + str(shifts[0]))
-    plt.title("SNR 3dB")
-    plt.xlabel("Samples")
-    plt.ylabel("Magnitude")
-    plt.legend()
-    plt.show()    
+    #plt.plot(cut_data)
+    #plt.axvline(shifts,color='r',label='Detected chirp end = ' + str(shifts[0]))
+    #plt.title("SNR 3dB")
+    #plt.xlabel("Samples")
+    #plt.ylabel("Magnitude")
+    #plt.legend()
+    #plt.show()
 
+    first_symbol = cut_data[CP : PREFIXED_SYMBOL_LENGTH]
+
+    first_symbol = np.fft.fft(first_symbol, N)[1 : CONSTELLATION_VALUES_PER_BLOCK + 1]
+    #plt.scatter(first_symbol.real, first_symbol.imag)
+    #plt.show()
+
+    first_symbol = first_symbol.tolist()
+
+    mapped_data = []
+    for data_symbol in first_symbol:
+        # Get distance to all symbols in constellation
+        distances = {abs(data_symbol - value): key for key, value in
+                     CONSTELLATION.items()}
+        # Get minimum distance
+        minimum_distance = min(distances.keys())
+        # Find symbol matching minimum distance and append
+        mapped_data.append(distances[minimum_distance])
+
+    output_string = "".join(mapped_data)
+
+    print(len(known_data))
+    print(len(output_string))
+    print(known_data == output_string)
     #print(shifts)
+
     
     return shifts
-
+"""
 
 ###CALLING THE FUNCTIONS##
 tx_data = transmit()
 
-shifts = receiver(tx_data)
+channel_response = [1, 2, 3, 2, 1, 0.5, 0]
+
+convolved_signal = sg.convolve(tx_data, channel_response)
+
+convolved_signal = convolved_signal[:-(len(channel_response)-1)]
+
+#rx_data = add_noise_db(tx_data, 22)
+rx_data = convolved_signal
+
+shifts = receiver(rx_data)
