@@ -3,7 +3,7 @@ import scipy.signal as sg
 import matplotlib.pyplot as plt
 
 K = 100
-##Arbitrary that determines the coefficients of channel impulse responce, MAX = CP
+##Arbitrary that determines the coefficients of channel impulse response, MAX = CP
 
 def channel_estimation(received_data, known_block, N, CP, K):
     
@@ -27,15 +27,15 @@ def channel_estimation(received_data, known_block, N, CP, K):
     
     known_block_freq = np.fft.fft(known_block,N)
     
-    channel_responce_freq = np.true_divide(symbols_freq, known_block_freq, out=np.zeros_like(symbols_freq), where = known_block_freq !=0)
+    channel_response_freq = np.true_divide(symbols_freq, known_block_freq, out=np.zeros_like(symbols_freq), where = known_block_freq !=0)
     
-    channel_responce = np.fft.ifft(channel_responce_freq,N)
+    channel_response = np.fft.ifft(channel_response_freq,N)
     
-    channel_responce = np.real_if_close(channel_responce)
+    channel_response = np.real_if_close(channel_response)
     
-    channel_responce = channel_responce[ : K + 1] # Find the first K coefficients
+    channel_response = channel_response[ : K + 1] # Find the first K coefficients
     
-    return channel_responce
+    return channel_response
 
 
 

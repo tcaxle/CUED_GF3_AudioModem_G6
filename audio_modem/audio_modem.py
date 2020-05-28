@@ -106,7 +106,12 @@ def check_typing(input_data):
     
     recur(input_data)
     
-    
+def norm(input_data): 
+    input_data = np.array(input_data).astype(np.float32)
+    input_data *= 1/np.max(np.abs(input_data))
+    return input_data.tolist()   
+
+ 
 #######TRANSMITTER########
 
 
@@ -390,12 +395,7 @@ def assemble_frame(input_data):
     #input_data = List of List of Float
     #known_data = List of List of Float
     #Deal with known data
-    
-    def norm(input_data): 
-       input_data = np.array(input_data).astype(np.float32)
-       input_data *= 1/np.max(np.abs(input_data))
-       return input_data.tolist()
-    
+        
     
     input_data = norm(input_data)
     
@@ -735,7 +735,6 @@ def add_noise_db(input_data, SNR=1000):
     data = np.array(data)
     data *= 1.0 / np.max(np.abs(data))
     data = data.tolist()
-    print(data[1])
 
     # Add AGWN
     SNR = (10) ** (SNR / 20)
@@ -913,13 +912,21 @@ def channel_estimation(symbols, known_block):
 
     channel_response_freq = np.true_divide(symbols_freq, known_block_freq, out=np.zeros_like(symbols_freq),
                                            where=known_block_freq != 0)
+    
+    #Might be needed later to avoid decoding issues
+    #channel_response = np.fft.ifft(channel_response_freq,N)[:200]
+   
+    # channel_response_freq = np.fft.fft(channel_response,N)
+    
+    return channel_response_freq
 
-    return channel_response
 
 def receiver(data):
 
-    known_symbol = get_known_data()
-
+    known_symbol = np.array(get_known_data())
+    
+    known_symbol *= 32767/np.max(known_symbol)
+    
     chirp = sweep()
     
     shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
@@ -935,17 +942,54 @@ def receiver(data):
     for frame in data:
         # Split into symbols
         frame = [frame[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(frame), PREFIXED_SYMBOL_LENGTH)]
-        estimation_symbols = frame[:KNOWN_BLOCK_LENGTH] + frame[-KNOWN_BLOCK_LENGTH:]
+        #Using the last 20 samples might be more error-prone than useful --Charalambos
+        estimation_symbols = frame[:KNOWN_BLOCK_LENGTH] + frame[-KNOWN_BLOCK_LENGTH:] 
+        
+        print(estimation_symbols[0][0:4])
+        print(known_symbol[0:4])
+       # assert (estimation_symbols[0] == known_symbol).all()
+        
         data_symbols = frame[KNOWN_BLOCK_LENGTH : - KNOWN_BLOCK_LENGTH]
         channel_response = channel_estimation(estimation_symbols, known_symbol)
-        print(channel_response)
+        #print(channel_response)
         plt.plot(channel_response)
 
     plt.show()
 
 
+    ##NEXT STEPS
+    
+    # #FFT all the symbols after removing the CP   
+    # freq_data = [np.fft.fft(symbols[CP:],N) for symbols in data_symbols]    
+    # #Divide each block by the channel response
+    # unconvolved_data = [np.divide(block, channel_response) for block in freq_data]
+    
+    # #Discard 2nd half of data
+    # unconvolved_data = [block[1:CONSTELLATION_VALUES_PER_BLOCK].tolist() for block in unconvolved_data]
+    
+    # check_typing(unconvolved_data) 
+    # unconvolved_data = [datum for symbols in unconvolved_data for datum in symbols]
+    
+    # mapped_data = []
+    
+    
+    # for data_symbol in unconvolved_data[0:30]:
+    #     # Get distance to all symbols in constellation
+    #     distances = {abs(data_symbol - value): key for key, value in
+    #                   CONSTELLATION.items()}
+    #     # Get minimum distance
+    #     minimum_distance = min(distances.keys())
+    #     # Find symbol matching minimum distance and append
+    #     mapped_data.append(distances[minimum_distance])
 
-
+    #     output_string = "".join(mapped_data)
+        
+    
+    # print(output_string[:30])
+    
+    # with open('random_bits.txt','r') as f:
+    #         print(f.read()[:30])
+            
 """
     cut_data = data[shift : shift + 220 * PREFIXED_SYMBOL_LENGTH]
 
@@ -994,13 +1038,13 @@ def receiver(data):
 ###CALLING THE FUNCTIONS##
 tx_data = transmit()
 
-channel_response = [1, 2, 3, 2, 1, 0.5, 0]
+# channel_response = [1,0.6,0.1,0.5, 0.9, 0.5, 0]
 
-convolved_signal = sg.convolve(tx_data, channel_response)
+# convolved_signal = sg.convolve(tx_data, channel_response)
 
-convolved_signal = convolved_signal[:-(len(channel_response)-1)]
+# convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
-#rx_data = add_noise_db(tx_data, 22)
-rx_data = convolved_signal
+#rx_data = add_noise_amp(tx_data, 100)
+# rx_data = convolved_signal
 
-shifts = receiver(rx_data)
+shifts = receiver(tx_data)
