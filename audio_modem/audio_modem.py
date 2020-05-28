@@ -14,7 +14,7 @@ MODE A) CP = 224, MODE B) CP = 704, MODE C) CP = 1184
 
     [< DATA >]
     |--2047--|
-
+_
 3. Blocks:
 
     [< 0 >|< DATA >|< 0 >|< CONJUGATE DATA >|]
@@ -45,13 +45,14 @@ from scipy.io import wavfile
 from matplotlib import pyplot as plt
 import sounddevice as sd
 import random
+from data_handling.exports import wav_output
 
 """
 Constants
 ---------
 """
 # Set:
-N = 4096 # IDFT length
+N = 4096 # DFT length
 PADDING = 0 # Frequency padding within block
 CP = 704 # Length of cyclic prefix
 
@@ -73,9 +74,10 @@ PREFIXED_SYMBOL_LENGTH = N + CP #4800
 CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4 * PADDING) / 2) #2047
 DATA_BITS_PER_BLOCK = CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE #4094
 BLOCK_LENGTH = 180
-CHIRP_LEGTH = 5
+CHIRP_LENGTH = 5
 KNOWN_BLOCK_LENGTH = 20
-FRAME_LENGTH = (CHIRP_LEGTH + KNOWN_BLOCK_LENGTH + BLOCK_LENGTH + KNOWN_BLOCK_LENGTH)*PREFIXED_SYMBOL_LENGTH
+FRAME_LENGTH = (CHIRP_LENGTH + KNOWN_BLOCK_LENGTH + BLOCK_LENGTH + KNOWN_BLOCK_LENGTH)*PREFIXED_SYMBOL_LENGTH
+
 """
 sounddevice settings
 --------------------
@@ -83,22 +85,22 @@ sounddevice settings
 sd.default.samplerate = SAMPLE_FREQUENCY
 sd.default.channels = 1
 
-def sweep(f_start=500, f_end=2000, sample_rate=SAMPLE_FREQUENCY,duration=5*(N+CP), channels=1):
+def sweep(f_start=2000, f_end=4000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP), channels=1):
     """
     Returns a frequency sweep
     """
-    # Calculate number of samples
-    samples = int(duration * sample_rate)
+    # Calculate the duration
+    duration = samples / sample_rate
     # Produce time array
     time_array = np.linspace(0, duration, samples)
+    
     # Produce frequency sweep
     f_sweep = sg.chirp(time_array, f_start, duration, f_end)
     # Normalise sweep
-    #f_sweep *= 1 / np.max(np.abs(f_sweep))
-    #f_sweep = f_sweep.astype(np.int16)
+    # f_sweep *= 1/np.max(np.abs(f_sweep))
+    # f_sweep = f_sweep.astype(np.int16)
     
     return f_sweep
-
 
 def text_to_binary(input_file="input.txt"):
     """
@@ -189,9 +191,10 @@ def xor_binary_and_key(input_data):
             return "1"
 
     # Open the file and read the data
-    with open("key.txt", "r") as f:
+    with open("random_bits.txt", "r") as f:
         key = f.read()
-
+        
+    key = key[:N]
     # make data into list of bits
     output_data = [datum for datum in input_data]
 
@@ -260,7 +263,7 @@ def constellation_values_to_data_blocks(input_data):
     output_data : LIST of LIST of COMPLEX
         splits data into blocks of length CONSTELLATION_VALUES_PER_BLOCK
     """
-    input_data = input_data        
+        
     # Split into blocks
     output_data = [input_data[i : i + CONSTELLATION_VALUES_PER_BLOCK] for i in range(0, len(input_data), CONSTELLATION_VALUES_PER_BLOCK)]
     
@@ -295,11 +298,13 @@ def assemble_block(input_data):
     output_data : LIST of LIST of COMPLEX
         list of blocks assembled ready for IDFT
     """
+    if not type(input_data) == list:
+        input_data = input_data.tolist()
+
     padding = [0] * PADDING
     dc = [0]
     mid = [0]
     return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
-
 
 def block_ifft(input_data):
     """
@@ -330,27 +335,38 @@ def cyclic_prefix(input_data):
     return [block[-CP:] + block for block in input_data]
 
 def assemble_frame(input_data):
+    
     #input_data = List of List of Float
     #known_data = List of List of Float
     #Deal with known data
     
-    chirp = [sweep(f_start=2000,f_end=40000)] #Length 5(N+CP)
+    def norm(input_data): 
+       input_data = np.array(input_data).astype(np.float32)
+       input_data *= 1/np.max(np.abs(input_data))
+       return input_data.tolist()
     
-    known_data = get_known_data()
     
-    #List of List of List of Float
-    output_data = [input_data[i : i + BLOCK_LENGTH] for i in range(0, len(input_data), BLOCK_LENGTH)]
+    input_data = norm(input_data)
+    
+    
+    chirp = sweep(f_start=2000,f_end=4000).tolist() #Length 5(N+CP)
+    
+    
+    known_data = norm(20*get_known_data()) #Length 20(N+CP)
+        
+    #List of List of Float
+    output_data = [input_data[i : i + BLOCK_LENGTH] for i in range(0, len(input_data), BLOCK_LENGTH)][0]
     
     #Needs to be appended with zeroes
     output_data[-1] += "0" * (BLOCK_LENGTH - len(output_data[-1]))
-
-        
+    
+    
     frames = [chirp + known_data + block + known_data for block in output_data]
-     
+         
     #Flatten frames
     
-    for i,frame in enumerate(frames):
-        frames[i]  = [item for sublist in frame for item in sublist]
+    # for i,frame in enumerate(frames):
+    #     frames[i]  = [item for sublist in frame for item in sublist]
     
     return frames
 
@@ -368,15 +384,23 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     * Normalises data to +/- 1.0
     * Transmits data from audio device
     """
+    data = input_data
+    
+    for i,block in enumerate(data):
+            data[i] = np.array(block).astype(np.float32)
+            # Normalise to 16-bit range
+            data[i] *= 32767 / np.max(np.abs(block))
+
+
     # Pad with 0.1s of silence either side of transmitted data
     silent_padding = [0] * int(SAMPLE_FREQUENCY * 0.1)
-    data = silent_padding + [datum for block in input_data for datum in block] + silent_padding
-    # convert to 16-bit data
-    data = np.array(data).astype(np.float32)
-    # Normalise to 16-bit range
-    data *= 32767 / np.max(np.abs(data))
-    # start playback
-    axs[0].plot(data)
+    data = silent_padding + [datum for block in data for datum in block] + silent_padding
+    # # convert to 16-bit data
+    # data = np.array(data).astype(np.float32)
+    # # Normalise to 16-bit range
+    # data *= 32767 / np.max(np.abs(data))
+    # # start playback
+    #axs[0].plot(data)
     if not suppress_audio:
         sd.play(data)
         sd.wait()
@@ -387,105 +411,108 @@ def output(input_data, save_to_file=False, suppress_audio=False):
                 f.write(str(i) + ',')
     return data
 
-def recieve(input_data):
+
+ 
+
+#######RECEIVER########
+    
+def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = True):
+    
+    """
+    Takes a file to be sent (chirp) and a received file and tries to locate
+    the chirp inside the received file
+    
+    If plot is set, then it will produce a matplotlib plot of the output
+    
+    Grad Mode: True or False.
+    
+    If true, it finds the second gradient before correlating. 
+    
+    If False it just finds correleation between given inputs.
+    
+    window: INT How far before and afterwards to search for synchronisation
+    """
+    
+    if window > len(sample):
+        raise ValueError("The window should not be larger than the added chirp")
+    
+    dd_sample = sample
+    dd_data = data
+ 
+    if grad_mode: 
+    ###Using the second derivative of signals
+        dd_sample = np.gradient(np.gradient(sample))
+        dd_data = np.gradient(np.gradient(data))
+ 
+    #Correlation between sample and data, normalised
+    corr = sg.correlate(dd_data, dd_sample, mode='full')
+    
+    #This normalised the corr, but it gives errors
+    #corr = corr / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
+    
+    #Create and shift x axis from -0.5 to 0.5
+    #delay_arr = np.linspace(-0.5*n/sample_rate, 0.5*n/sample_rate, n)
+    
+    #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
+    shift = np.argmax(corr)
     
     
-    def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = True):
+    if shift < 0:
+        print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
+    else:
+        print('data is ' + str(np.round(shift,3)) + ' behind the sample')
+    
+    shifts = np.linspace(shift-window,shift+window,2*window+1).astype(int).tolist()
         
-        """
-        Takes a file to be sent (chirp) and a received file and tries to locate
-        the chirp inside the received file
-        
-        If plot is set, then it will produce a matplotlib plot of the output
-        
-        Grad Mode: True or False.
-        
-        If true, it finds the second gradient before correlating. 
-        
-        If False it just finds correleation between given inputs.
-        
-        window: INT How far before and afterwards to search for synchronisation
-        """
-        
-        if window > len(sample):
-            raise ValueError("The window should not be larger than the added chirp")
-        
-        dd_sample = sample
-        dd_data = data
-     
-        if grad_mode: 
-        ###Using the second derivative of signals
-            dd_sample = np.gradient(np.gradient(sample))
-            dd_data = np.gradient(np.gradient(data))
-     
-        #Correlation between sample and data, normalised
-        corr = sg.correlate(dd_data, dd_sample, mode='full')
-        
-        #This normalised the corr, but it gives errors
-        #corr = corr / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
-        
-        #Create and shift x axis from -0.5 to 0.5
-        #delay_arr = np.linspace(-0.5*n/sample_rate, 0.5*n/sample_rate, n)
-        
-        #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
-        shift = np.argmax(corr)
-        
-        if shift < 0:
-            print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
-        else:
-            print('data is ' + str(np.round(shift,3)) + ' behind the sample')
-        
-        shifts = np.linspace(shift-window,shift+window,2*window+1).astype(int).tolist()
-            
-        return shifts
-           
-    def shift_sync(sample, data, sample_freq, shift):
+    return shifts
        
-      """
-      This function takes two data sets, their sampled frequency,
-      and the shift between them. 
-      
-      It removes the shift between the beggining of the data (relative 
-      to the sample). 
-      
-      It returns the data with equal length as the sample (for plotting).
-      """
-      
-      ## shift should be more precise than sample rate
-      # Round order of magnitude of shift close to sample precision and add 1 for safety  
-      
-      shift_sign = shift
-      #print(shift,type(shift))
-      shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
-      
-      # Find the difference between the two samples
-      sample_shift = int(np.floor(shift * sample_freq))
-      
-      #Assuming the data has a delay at the beginning
-      
-      if shift_sign > 0:
-                  
-          #remove the sample shift from the data, getting closer to when the sample began
-          data = data[sample_shift:]
-          
-          #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
-          data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
-                
-          
-      ###Assuming the data arrives faster than the sample (negative delay)
-      ###This occurs if we estimate the shift too early. Feeding the signal again should
-      ###trigger this and try and shift the data to the right
-      
-          
-      elif shift_sign < 0:
-          
-          #Pad sample_shift amount of zeroes until data and sample match    
-          data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
+def shift_sync(sample, data, sample_freq, shift):
+   
+  """
+  This function takes two data sets, their sampled frequency,
+  and the shift between them. 
   
-          #remove the end samples
-          data = data[:-sample_shift]
-          
-      return data
+  It removes the shift between the beggining of the data (relative 
+  to the sample). 
+  
+  It returns the data with equal length as the sample (for plotting).
+  """
+  
+  ## shift should be more precise than sample rate
+  # Round order of magnitude of shift close to sample precision and add 1 for safety  
+  
+  shift_sign = shift
+  #print(shift,type(shift))
+  shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
+  
+  # Find the difference between the two samples
+  sample_shift = int(np.floor(shift * sample_freq))
+  
+  #Assuming the data has a delay at the beginning
+  
+  if shift_sign > 0:
+              
+      #remove the sample shift from the data, getting closer to when the sample began
+      data = data[sample_shift:]
+      
+      #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
+      data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
+            
+      
+  ###Assuming the data arrives faster than the sample (negative delay)
+  ###This occurs if we estimate the shift too early. Feeding the signal again should
+  ###trigger this and try and shift the data to the right
+  
+      
+  elif shift_sign < 0:
+      
+      #Pad sample_shift amount of zeroes until data and sample match    
+      data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
+  
+      #remove the end samples
+      data = data[:-sample_shift]
+      
+  return data
 
 def check_synchronisation(data,shifts):  
     
@@ -547,7 +574,6 @@ def add_noise_amp(input_data, amplitude):
 
 
 def create_preamble():
-    
     """
     Creates a preamble of length 2L = N
     """
@@ -565,20 +591,32 @@ def create_preamble():
     data = [2 * datum for datum in data]
     return data
 
-def get_known_data():
+
+def get_known_data(save=False):
     
-    with open("key.txt", "r") as f:
+    with open("random_bits.txt", "r") as f:
         data = f.read()
-    
+        
+    data = data[:N]
+    # We need the equivalent of 1 OFDM symbol length and 
+    # We can repeat it 20 times as needed
+    # Where would it be best to cut-off uneccesary data? In the file itself?
+
     data = binary_to_words(data)
     data = words_to_constellation_values(data)
     data = constellation_values_to_data_blocks(data)
     data = assemble_block(data)
     data = block_ifft(data)
-    data = cyclic_prefix(data)
-    return data[0]    
+    data = cyclic_prefix(data)    
+    if save:
+        with open('known_data.txt','w') as f:
+            for i in range(len(data[0])):
+                f.write(str(data[0][i]) + ',')
 
-    
+    #Don't quite get why we need the first element specifically. Is this due to 
+    #the cyclic prefix operation?
+
+    return data[0]    
 
 def synchronise(input_data,CP):
     input_data = np.array(input_data)
@@ -719,36 +757,107 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
         if set then does not output sound
     """
     
-    
     data = text_to_binary()
     data = fill_binary(data)
-    #data = xor_binary_and_key(data)
+    data = xor_binary_and_key(data)
+    print(data[:10])
+    print("Length of data:", len(data))
     data = binary_to_words(data)
+    print("")
+    print(data[:10])
+    print("Length of words:", len(data))
     data = words_to_constellation_values(data)
+    print("")
+    print(data[:10])
+    print("Length of constellation:", len(data))
     data = constellation_values_to_data_blocks(data)
+    print("")
+    print(data[0][:10])
+    print("Number of data blocks:", len(data))
+    print("Length of data blocks:", len(data[0]))
+    #data= data[:4096]
+    print(type(data))
     data = assemble_block(data)
+    print("")
+    print(data[0][:10])
+    print("Number of assembled blocks:", len(data))
+    print("Length of assembled blocks:", len(data[0]))
+    
     data = block_ifft(data)
+    print("")
+    print(data[0][:10])
+    print("Number of assembled blocks:", len(data))
+    print("Length of IFFT:", len(data[0]))
     data = cyclic_prefix(data)
-    #preamble = create_preamble()
-    #data = [preamble] + data
-    # https://audio-modem.slack.com/archives/C013K2HGVL3
+    print("")
+    print(data[0][:10])
+    print("Number of CPed blocks:", len(data))
+    print("Length of CPed blocks:", len(data[0]))
+    
+    
+    chirp = sweep(f_start=2000,f_end=4000)
+    
     data = assemble_frame(data)
-    data = output(data,save_to_file=True, suppress_audio=True)
+    
+    print("\n",type(data),"\n",type(data[0]))
+    
+    
+    data = output(data,save_to_file=True,suppress_audio=True)
+    
+    
+    # print("")
+    # print("Padding adds 1 block before and 1 block after")
+    # print("Number of output:", len(data))
+    # print(data[15000:15430])
+    
+    
+    #wav_output(data,SAMPLE_FREQUENCY)
+    # wav_output(chirp,SAMPLE_FREQUENCY)
+    
+    # data = text_to_binary()
+    # data = fill_binary(data)
+    # #data = xor_binary_and_key(data)
+    # data = binary_to_words(data)
+    # data = words_to_constellation_values(data)
+    # data = constellation_values_to_data_blocks(data)
+    # data = assemble_block(data)
+    # data = block_ifft(data)
+    # data = cyclic_prefix(data)
+    # #preamble = create_preamble()
+    # #data = [preamble] + data
+    # # https://audio-modem.slack.com/archives/C013K2HGVL3
+    # data = output(data,save_to_file=True, suppress_audio=True)
 
-    data = add_noise_amp(data, 0.05)
-
-    plt.plot(data)
-    plt.show()
-
+    #data = add_noise_db(data, 3)
+    
+    ###Schmidl and Cox, Deprecated
     #start = synchronise(data,CP)
     #data = data[start:]
     #plt.plot(data)
     #plt.show()
+    #return data
+        
+    shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
+    
+    plt.figure()
+    plt.plot(data)
+    plt.axvline(shifts,color='r',label='Detected chirp end = ' + str(shifts[0]))
+    plt.title("SNR 3dB")
+    plt.xlabel("Samples")
+    plt.ylabel("Magnitude")
+    plt.xlim(5000,6000)
+    plt.legend()
+    plt.show()    
 
-    #recieve(data)
+    print(shifts)
+    
 
-fig, axs = plt.subplots(4)
-transmit()
+
+    
+#fig, axs = plt.subplots(1)
+
+tx_data = transmit()
+
 
 def generate_key():
     random_string = "".join([str(random.randint(0, 1)) for i in range(DATA_BITS_PER_BLOCK)])
