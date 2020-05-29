@@ -17,9 +17,9 @@ MODE A) CP = 224, MODE B) CP = 704, MODE C) CP = 1184
 _
 3. Blocks:
 
-    [< 0 >|< DATA >|< 0 >|< CONJUGATE DATA >|]
-    |     |--2047--|     |------- 2047-------|
-    |---------------4096---------------------|
+    [< L-0 >|< DATA >|< H-0 >|< MID >|< H-0 >|< CONJUGATE DATA >|< L-0 >|
+    |--99---|--1399--|--550--|---1---|--550--|------1399--------|---99--|
+    |--------------------------------4096-------------------------------|
 
 4. Symbols (after IFFT):
 
@@ -54,7 +54,7 @@ Constants
 # Set:
 N = 4096 # DFT length
 PADDING = 0 # Frequency padding within block
-L_PADDING = 98
+L_PADDING = 98 #For assymetrical padding as requested
 H_PADDING = 550
 CP = 704 # Length of cyclic prefix
 
@@ -73,7 +73,12 @@ FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
 
 # Calculated:
 PREFIXED_SYMBOL_LENGTH = N + CP #4800
-CONSTELLATION_VALUES_PER_BLOCK = 1399 #int((N - 2 - 4 * PADDING) / 2) #1399
+
+if L_PADDING != 0 or H_PADDING != 0:
+    CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 2*(L_PADDING+H_PADDING)) / 2) #1399
+else:
+    CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4*(PADDING)) / 2)
+
 DATA_BITS_PER_BLOCK = CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE #4094
 DATA_BLOCKS_PER_FRAME = 180
 CHIRP_BLOCKS_PER_FRAME = 5
@@ -127,9 +132,11 @@ def sweep(f_start=0, f_end=8000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP)):
     
     # Produce frequency sweep
     f_sweep = sg.chirp(time_array, f_start, duration, f_end)
+    # plt.plot(f_sweep)
+    # plt.show()
     # Normalise sweep
-    # f_sweep *= 1/np.max(np.abs(f_sweep))
-    # f_sweep = f_sweep.astype(np.int16)
+    #f_sweep *= 1/np.max(np.abs(f_sweep))
+    #f_sweep = f_sweep.astype(np.int16)
     
     return f_sweep
 
@@ -359,10 +366,13 @@ def assemble_block(input_data):
 
     lower_padding = [0] * L_PADDING
     higher_padding = [0] * H_PADDING
+    padding = [0] * PADDING
     dc = [0]
     mid = [0]
-    return [dc + lower_padding + block + higher_padding + mid +  higher_padding + conjugate_block(block) + lower_padding for block in input_data]
-
+    if L_PADDING !=0 or H_PADDING != 0:
+        return [dc + lower_padding + block + higher_padding + dc +  higher_padding + conjugate_block(block) + lower_padding for block in input_data]
+    else:
+        return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
 def block_ifft(input_data):
     """
     Parameters
@@ -623,12 +633,20 @@ def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = T
     #delay_arr = np.linspace(-0.5*n/sample_rate, 0.5*n/sample_rate, n)
     
     #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
+ 
+    for i, value in enumerate(corr):
+        corr[i] *= np.exp(-i*10**(-6))
+    
+    plt.figure()
+    plt.plot(corr)
+    plt.show()
+    
     shift = np.argmax(corr)
     
-    # plt.figure()
-    # plt.plot(data)
-    # plt.axvline(shift, color='r')
-    # plt.show()
+    plt.figure()
+    plt.plot(data)
+    plt.axvline(shift, color='r')
+    plt.show()
     
     if shift < 0:
         print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
@@ -907,8 +925,8 @@ def channel_estimation(symbols, known_block):
 
     
     #Might be needed later to avoid decoding issues
-    #channel_response = np.fft.ifft(channel_response_freq, N)[:CP-1]
-    # plt.figure(8)
+    channel_response = np.fft.ifft(channel_response_freq, N)[:10]
+    # plt.figure()
     # plt.plot(channel_response)
     # plt.show()
    
@@ -932,7 +950,6 @@ def receiver(data):
     # Remove Stuff before and after data and split into frames
     data = data[shift - CHIRP_BLOCKS_PER_FRAME * PREFIXED_SYMBOL_LENGTH:]
     data = [data[i : i + DATA_PER_FRAME] for i in range(0, len(data), DATA_PER_FRAME)]
-    print('haha',len(data[-1]))
     if len(data[-1]) != DATA_PER_FRAME:
         del data[-1]
 
@@ -952,6 +969,7 @@ def receiver(data):
     # Using the last 20 symbols might be more error-prone than useful --Charalambos
     # So use only first 20 symbols
     estimation_symbols = frame[:KNOWN_DATA_BLOCKS_PER_FRAME]
+    #estimation_symbols = [symbol[CP:] for symbol in estimation_symbols]
     estimation_symbols = norm(estimation_symbols)
     
     # Check that symbols the same
@@ -973,8 +991,37 @@ def receiver(data):
     # plt.figure()
     # plt.scatter(channel_response.real,channel_response.imag)
     # Isolate data symbols
-    data = [symbol[CP:] for symbol in frame[KNOWN_DATA_BLOCKS_PER_FRAME : - KNOWN_DATA_BLOCKS_PER_FRAME] for frame in data]
+    # check_typing(data)
+    # print("ehe",len((data[0][KNOWN_DATA_BLOCKS_PER_FRAME*PREFIXED_SYMBOL_LENGTH:-PREFIXED_SYMBOL_LENGTH*KNOWN_DATA_BLOCKS_PER_FRAME])))
+    data = [frame[KNOWN_DATA_BLOCKS_PER_FRAME*PREFIXED_SYMBOL_LENGTH : - PREFIXED_SYMBOL_LENGTH*KNOWN_DATA_BLOCKS_PER_FRAME] for frame in data]
+    
+    for i,frame in enumerate(data):
+        frame = [frame[i:i+PREFIXED_SYMBOL_LENGTH][CP:] for i in range(0,len(frame),PREFIXED_SYMBOL_LENGTH)]    
+        data[i]=frame
 
+   
+
+    data = [symbol for frame in data for symbol in frame]
+
+    check_typing(data)
+   
+    #Power Checking
+    plt.figure()
+    symbol_powers = np.array([np.sqrt(np.mean(np.square(symbol))) for symbol in data])
+    symbol_powers -= np.min(symbol_powers)
+    symbol_powers = norm(symbol_powers)
+    
+    print(len(symbol_powers))
+    print(len(data))
+    
+    for i,power in enumerate(symbol_powers):
+        if power < 0.5:
+            data[i]=None
+    
+    data = [symbol for symbol in data if symbol]
+    
+    plt.plot(symbol_powers)
+    plt.show()
         
     # FFT the symbols
     data = [np.fft.fft(symbol, N) for symbol in data]
@@ -990,27 +1037,25 @@ def receiver(data):
     
     # Discard second half of all symbols and keep only symbols in bins 100-1500
     data = [symbol[L_PADDING + 1 : 1 + L_PADDING + CONSTELLATION_VALUES_PER_BLOCK] for symbol in data]
-
-    for i in data:
-        if len(i) != 1399:
-            print(len(i))
     
 
     # Flatten into single list of symbols
-    data = [symbol for frame in data for symbol in frame]
     plt.figure()
     plt.scatter(np.array(data[:]).real, np.array(data[:]).imag)
     plt.show()
 
+    data = [value for symbol in data for value in symbol]
+    
+    
     # Map each symbol to constellation values
-    for i, symbol in enumerate(data):
+    for i,value in enumerate(data):            
         # Get distance to all symbols in constellation
-        distances = {abs(symbol - value): key for key, value in CONSTELLATION.items()}
+        distances = {abs(value - const_value): key for key, const_value in CONSTELLATION.items()}
         # Get minimum distance
         minimum_distance = min(distances.keys())
         # Find symbol matching minimum distance and append
         data[i] = distances[minimum_distance]
-
+   
     # Make into one big string
     data = "".join(["".join(symbol) for symbol in data])
 
@@ -1031,9 +1076,9 @@ def binary_to_text(input_data, print_out=False, save_to_file=True):
 def BER(input_data,received_data):
     
     
-    ### THIS SHOULD NOT BE HERE!!!!!!
-    if len(received_data) > len(input_data):
-        received_data = received_data[:len(input_data)]
+    ## THIS SHOULD NOT BE HERE!!!!!!
+    # if len(received_data) > len(input_data):
+    #     received_data = received_data[:len(input_data)]
     
     counter = 0
     
@@ -1056,9 +1101,10 @@ print(len(tx_data))
 test = text_to_binary()
 print(len(test))
 
-channel_response = [1, -0.7,0.7, 2, -0.5 0]
+channel_response = [1, -0.7,0.7, 2, -0.5, 0]
 
 convolved_signal = sg.convolve(tx_data, channel_response)
+convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
 #rx_data = add_noise_amp(tx_data, 0.01)
 rx_data = convolved_signal
@@ -1067,6 +1113,7 @@ r_data = receiver(rx_data)
 
 r_data = xor_binary_and_key(r_data)
 
-b_e_r,r_data = BER(test,r_data)
+#b_e_r,r_data = BER(test,r_data)
 
-binary_to_text(r_data)
+binary_to_text(r_data,print_out=True)
+
