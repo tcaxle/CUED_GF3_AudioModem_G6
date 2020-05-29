@@ -86,7 +86,6 @@ sd.default.samplerate = SAMPLE_FREQUENCY
 sd.default.channels = 1
 
 def check_typing(input_data):
-    
     def recur(input_data):
     
         try:
@@ -105,13 +104,12 @@ def check_typing(input_data):
                 print("\nType: {}".format(type_zero))
     
     recur(input_data)
-    
+
 def norm(input_data): 
     input_data = np.array(input_data).astype(np.float32)
     input_data *= 1/np.max(np.abs(input_data))
     return input_data.tolist()   
 
- 
 #######TRANSMITTER########
 
 
@@ -133,7 +131,6 @@ def sweep(f_start=2000, f_end=4000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP
     return f_sweep
 
 def get_known_data(save=False):
-    
     with open("random_bits.txt", "r") as f:
         data = f.read()
         
@@ -391,12 +388,9 @@ def cyclic_prefix(input_data):
     return [block[-CP:] + block for block in input_data]
 
 def assemble_frame(input_data):
-    
     #input_data = List of List of Float
     #known_data = List of List of Float
     #Deal with known data
-        
-    
     input_data = norm(input_data)
     
     #We have 7 blocks so 7P floats
@@ -561,9 +555,6 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
         # wav_output(data,SAMPLE_FREQUENCY)
         # wav_output(chirp,SAMPLE_FREQUENCY)
     
-    
-    
-    
     data = text_to_binary()
     data = fill_binary(data)
     data = xor_binary_and_key(data)
@@ -580,23 +571,18 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
     ###Schmidl and Cox, Deprecated
     # #preamble = create_preamble()
     # #data = [preamble] + data
-    
     #data = add_noise_db(data, 3)
-    
     #start = synchronise(data,CP)
     #data = data[start:]
     #plt.plot(data)
     #plt.show()
     #return data
 
-    
 #fig, axs = plt.subplots(1)
 
 
 #######RECEIVER########
-    
 def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = True):
-    
     """
     Takes a file to be sent (chirp) and a received file and tries to locate
     the chirp inside the received file
@@ -644,57 +630,51 @@ def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = T
     shifts = np.linspace(shift-window,shift+window,2*window+1).astype(int).tolist()
         
     return shifts
-       
+
 def shift_sync(sample, data, sample_freq, shift):
-   
-  """
-  This function takes two data sets, their sampled frequency,
-  and the shift between them. 
-  
-  It removes the shift between the beggining of the data (relative 
-  to the sample). 
-  
-  It returns the data with equal length as the sample (for plotting).
-  """
-  
-  ## shift should be more precise than sample rate
-  # Round order of magnitude of shift close to sample precision and add 1 for safety  
-  
-  shift_sign = shift
-  #print(shift,type(shift))
-  shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
-  
-  # Find the difference between the two samples
-  sample_shift = int(np.floor(shift * sample_freq))
-  
-  #Assuming the data has a delay at the beginning
-  
-  if shift_sign > 0:
-              
-      #remove the sample shift from the data, getting closer to when the sample began
-      data = data[sample_shift:]
+    """
+    This function takes two data sets, their sampled frequency,
+    and the shift between them. 
+
+    It removes the shift between the beggining of the data (relative 
+    to the sample). 
+
+    It returns the data with equal length as the sample (for plotting).
+    """
+
+    ## shift should be more precise than sample rate
+    # Round order of magnitude of shift close to sample precision and add 1 for safety  
+
+    shift_sign = shift
+    #print(shift,type(shift))
+    shift = abs(np.round(shift,int(abs(np.floor(np.log10(abs(shift)))))+1))
+
+    # Find the difference between the two samples
+    sample_shift = int(np.floor(shift * sample_freq))
+
+    #Assuming the data has a delay at the beginning
+
+    if shift_sign > 0:
+        #remove the sample shift from the data, getting closer to when the sample began
+        data = data[sample_shift:]
       
-      #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
-      data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
-            
+        #Pad data with sample_shift amount of zeroes so the lengths of the arrays match
+        data = np.concatenate((data,(np.zeros(sample_shift,dtype=np.int16))),axis=None)
       
-  ###Assuming the data arrives faster than the sample (negative delay)
-  ###This occurs if we estimate the shift too early. Feeding the signal again should
-  ###trigger this and try and shift the data to the right
-  
+    ###Assuming the data arrives faster than the sample (negative delay)
+    ###This occurs if we estimate the shift too early. Feeding the signal again should
+    ###trigger this and try and shift the data to the right
       
-  elif shift_sign < 0:
+    elif shift_sign < 0:
+        #Pad sample_shift amount of zeroes until data and sample match    
+        data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
+
+        #remove the end samples
+        data = data[:-sample_shift]
       
-      #Pad sample_shift amount of zeroes until data and sample match    
-      data = np.concatenate(((np.zeros(sample_shift,dtype=np.int16)), data),axis=None)
-  
-      #remove the end samples
-      data = data[:-sample_shift]
-      
-  return data
+    return data
 
 def check_synchronisation(data,shifts):  
-    
     # For each possible shift value, retrioeve the first OFDM symbol
     deviations = {}
 
@@ -728,7 +708,6 @@ def check_synchronisation(data,shifts):
 
     return deviations[min(deviations.keys())]
 
-
 def add_noise_db(input_data, SNR=1000):
     # Preprocess
     data = input_data
@@ -750,7 +729,6 @@ def add_noise_amp(input_data, amplitude):
     noise = scale * amplitude * np.random.normal(0, 1, len(input_data))
     return [datum + noise_datum for datum, noise_datum in zip(input_data, noise)]
 
-
 def create_preamble():
     """
     Creates a preamble of length 2L = N
@@ -768,7 +746,6 @@ def create_preamble():
     data = data[0]
     data = [2 * datum for datum in data]
     return data
-
 
 def synchronise(input_data,CP):
     input_data = np.array(input_data)
@@ -893,9 +870,6 @@ def synchronise(input_data,CP):
     
     return shift
 
-
-
-
 def generate_key():
     random_string = "".join([str(random.randint(0, 1)) for i in range(DATA_BITS_PER_BLOCK)])
     with open("key.txt", "w") as f:
@@ -907,26 +881,40 @@ def channel_estimation(symbols, known_block):
     symbols = np.average(symbols, axis=0)
 
     symbols_freq = np.fft.fft(symbols, N)
+    print("imag", symbols_freq.imag)
 
     known_block_freq = np.fft.fft(known_block, N)
+    print("imag", known_block_freq.imag)
 
-    channel_response_freq = np.true_divide(symbols_freq, known_block_freq, out=np.zeros_like(symbols_freq),
-                                           where=known_block_freq != 0)
+    channel_response_freq = np.true_divide(
+        symbols_freq,
+        known_block_freq,
+        out=np.zeros_like(symbols_freq),
+        where=known_block_freq != 0,
+    )
+
+    # Remove DC value
+    channel_response_freq[0] = 0
+    channel_response_freq[int(N / 2)] = 0
+
     
     #Might be needed later to avoid decoding issues
-    #channel_response = np.fft.ifft(channel_response_freq,N)[:200]
+    channel_response = np.fft.ifft(channel_response_freq, N)[:CP]
+    plt.plot(channel_response)
+    plt.show()
    
     # channel_response_freq = np.fft.fft(channel_response,N)
     
     return channel_response_freq
 
-
 def receiver(data):
-
+    # Normalise known symbol to 16 bit range
     known_symbol = np.array(get_known_data())
-    
-    known_symbol *= 32767/np.max(known_symbol)
-    
+    known_symbol *= 1/np.max(known_symbol)
+
+    # Normalise data to +- 1
+    data = norm(data)
+
     chirp = sweep()
     
     shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
@@ -937,114 +925,98 @@ def receiver(data):
     data = [data[i : i + FRAME_LENGTH] for i in range(0, len(data), FRAME_LENGTH)]
     if len(data[-1]) != FRAME_LENGTH:
         del data[-1]
+
+    # Check the power of each frame
+    # Will be used to discard non-OFDM frames
+    frame_powers = [np.sqrt(np.mean(np.square(frame))) for frame in data]
+    #plt.plot(frame_powers)
+    #plt.show()
+
     # Remove the chirp
     data = [frame[CHIRP_LENGTH * PREFIXED_SYMBOL_LENGTH :] for frame in data]
-    for frame in data:
-        # Split into symbols
-        frame = [frame[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(frame), PREFIXED_SYMBOL_LENGTH)]
-        #Using the last 20 samples might be more error-prone than useful --Charalambos
-        estimation_symbols = frame[:KNOWN_BLOCK_LENGTH] + frame[-KNOWN_BLOCK_LENGTH:] 
-        
-        print(estimation_symbols[0][0:4])
-        print(known_symbol[0:4])
-       # assert (estimation_symbols[0] == known_symbol).all()
-        
-        data_symbols = frame[KNOWN_BLOCK_LENGTH : - KNOWN_BLOCK_LENGTH]
-        channel_response = channel_estimation(estimation_symbols, known_symbol)
-        #print(channel_response)
-        plt.plot(channel_response)
 
+    # Channel Estimation
+    frame = data[0]
+    # Split into symbols
+    frame = [frame[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(frame), PREFIXED_SYMBOL_LENGTH)]
+    # Isolate Estimation Symbols
+    # Using the last 20 symbols might be more error-prone than useful --Charalambos
+    # So use only first 20 symbols
+    estimation_symbols = frame[:KNOWN_BLOCK_LENGTH]
+    estimation_symbols = norm(estimation_symbols)
+    
+    # Check that symbols the same
+    print(estimation_symbols[0][0:4])
+    print(np.max(estimation_symbols))
+    print(np.min(estimation_symbols))
+    print(known_symbol[0:4])
+    print(np.max(known_symbol))
+    print(np.min(known_symbol))
+    # assert (estimation_symbols[0] == known_symbol).all()
+    # print(channel_response)
+    channel_response = channel_estimation(estimation_symbols, known_symbol)
+    plt.plot(channel_response.real)
+    plt.plot(channel_response.imag)
+    plt.show()
+    
+    # Isolate data symbols
+    data = [symbol[CP:] for symbol in frame[KNOWN_BLOCK_LENGTH : - KNOWN_BLOCK_LENGTH] for frame in data]
+
+    # FFT the symbols
+    data = [np.fft.fft(symbol, N) for symbol in data]
+    plt.scatter(np.array(data).real, np.array(data).imag)
     plt.show()
 
+    # Divide each symbol by channel response
+    data = [np.true_divide(symbol, channel_response).tolist() for symbol in data]
 
-    ##NEXT STEPS
-    
-    # #FFT all the symbols after removing the CP   
-    # freq_data = [np.fft.fft(symbols[CP:],N) for symbols in data_symbols]    
-    # #Divide each block by the channel response
-    # unconvolved_data = [np.divide(block, channel_response) for block in freq_data]
-    
-    # #Discard 2nd half of data
-    # unconvolved_data = [block[1:CONSTELLATION_VALUES_PER_BLOCK].tolist() for block in unconvolved_data]
-    
-    # check_typing(unconvolved_data) 
-    # unconvolved_data = [datum for symbols in unconvolved_data for datum in symbols]
-    
-    # mapped_data = []
-    
-    
-    # for data_symbol in unconvolved_data[0:30]:
-    #     # Get distance to all symbols in constellation
-    #     distances = {abs(data_symbol - value): key for key, value in
-    #                   CONSTELLATION.items()}
-    #     # Get minimum distance
-    #     minimum_distance = min(distances.keys())
-    #     # Find symbol matching minimum distance and append
-    #     mapped_data.append(distances[minimum_distance])
+    # Discard second half of all symbols
+    data = [symbol[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK] for symbol in data]
 
-    #     output_string = "".join(mapped_data)
-        
-    
-    # print(output_string[:30])
-    
-    # with open('random_bits.txt','r') as f:
-    #         print(f.read()[:30])
-            
-"""
-    cut_data = data[shift : shift + 220 * PREFIXED_SYMBOL_LENGTH]
+    # Flatten into single list of symbols
+    data = [symbol for frame in data for symbol in frame]
+    plt.scatter(np.array(data[-1000:]).real, np.array(data[-1000:]).imag)
+    plt.show()
 
-    # q=24000
-    # plots=data[:2]
-    # x = np.linspace(0, len(plots),len(plots[::q]))
-    #plt.figure()
-    
-    #plt.plot(cut_data)
-    #plt.axvline(shifts,color='r',label='Detected chirp end = ' + str(shifts[0]))
-    #plt.title("SNR 3dB")
-    #plt.xlabel("Samples")
-    #plt.ylabel("Magnitude")
-    #plt.legend()
-    #plt.show()
-
-    first_symbol = cut_data[CP : PREFIXED_SYMBOL_LENGTH]
-
-    first_symbol = np.fft.fft(first_symbol, N)[1 : CONSTELLATION_VALUES_PER_BLOCK + 1]
-    #plt.scatter(first_symbol.real, first_symbol.imag)
-    #plt.show()
-
-    first_symbol = first_symbol.tolist()
-
-    mapped_data = []
-    for data_symbol in first_symbol:
+    # Map each symbol to constellation values
+    for i, symbol in enumerate(data):
         # Get distance to all symbols in constellation
-        distances = {abs(data_symbol - value): key for key, value in
-                     CONSTELLATION.items()}
+        distances = {abs(symbol - value): key for key, value in CONSTELLATION.items()}
         # Get minimum distance
         minimum_distance = min(distances.keys())
         # Find symbol matching minimum distance and append
-        mapped_data.append(distances[minimum_distance])
+        data[i] = distances[minimum_distance]
 
-    output_string = "".join(mapped_data)
+    # Make into one big string
+    data = "".join(["".join(symbol) for symbol in data])
 
-    print(len(known_data))
-    print(len(output_string))
-    print(known_data == output_string)
-    #print(shifts)
+    return data
 
-    
-    return shifts
-"""
+def binary_to_text(input_data, print_out=False, save_to_file=True):
+    # Convert to bytes
+    output_data = [input_data[i : i + 8] for i in range(0, len(input_data), 8)]
+    # Convert to bytearray
+    output_data = bytearray([int(i, 2) for i in output_data])
+    if save_to_file:
+        with open("reciever_output.txt", "wb") as f:
+            f.write(output_data)
+    if print_out:
+        print(output_data.decode())
+    return output_data
 
-###CALLING THE FUNCTIONS##
+# == CALLING THE FUNCTIONS == #
 tx_data = transmit()
 
-# channel_response = [1,0.6,0.1,0.5, 0.9, 0.5, 0]
+channel_response = [1,0.6,0.1,0.5, 0.9, 0.5, 0]
 
-# convolved_signal = sg.convolve(tx_data, channel_response)
+convolved_signal = sg.convolve(tx_data, channel_response)
 
-# convolved_signal = convolved_signal[:-(len(channel_response)-1)]
+convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
 #rx_data = add_noise_amp(tx_data, 100)
-# rx_data = convolved_signal
+rx_data = convolved_signal
 
-shifts = receiver(tx_data)
+data = receiver(rx_data)
+
+data = xor_binary_and_key(data)
+binary_to_text(data)
