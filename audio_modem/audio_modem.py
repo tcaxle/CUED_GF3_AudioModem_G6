@@ -54,6 +54,8 @@ Constants
 # Set:
 N = 4096 # DFT length
 PADDING = 0 # Frequency padding within block
+L_PADDING = 98
+H_PADDING = 550
 CP = 704 # Length of cyclic prefix
 
 BITS_PER_CONSTELLATION_VALUE = 2 # Length of binary word per constellation symbol
@@ -71,7 +73,7 @@ FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
 
 # Calculated:
 PREFIXED_SYMBOL_LENGTH = N + CP #4800
-CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4 * PADDING) / 2) #2047
+CONSTELLATION_VALUES_PER_BLOCK = 1399 #int((N - 2 - 4 * PADDING) / 2) #1399
 DATA_BITS_PER_BLOCK = CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE #4094
 DATA_BLOCKS_PER_FRAME = 180
 CHIRP_BLOCKS_PER_FRAME = 5
@@ -248,7 +250,7 @@ def xor_binary_and_key(input_data):
     with open("random_bits.txt", "r") as f:
         key = f.read()
         
-    key = key[:N]
+    key = key[:]
     # make data into list of bits
     output_data = [datum for datum in input_data]
 
@@ -355,10 +357,11 @@ def assemble_block(input_data):
     if not type(input_data) == list:
         input_data = input_data.tolist()
 
-    padding = [0] * PADDING
+    lower_padding = [0] * L_PADDING
+    higher_padding = [0] * H_PADDING
     dc = [0]
     mid = [0]
-    return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
+    return [dc + lower_padding + block + higher_padding + mid +  higher_padding + conjugate_block(block) + lower_padding for block in input_data]
 
 def block_ifft(input_data):
     """
@@ -962,11 +965,13 @@ def receiver(data):
     # print(channel_response)
     channel_response = channel_estimation(estimation_symbols, known_symbol)
     
-    plt.figure()
-    plt.plot(channel_response.real)
-    plt.plot(channel_response.imag)
-    plt.show()
+    # plt.figure()
+    # plt.plot(channel_response.real,color='r')
+    # plt.plot(channel_response.imag,color='b')
+    # plt.show()
     
+    # plt.figure()
+    # plt.scatter(channel_response.real,channel_response.imag)
     # Isolate data symbols
     data = [symbol[CP:] for symbol in frame[KNOWN_DATA_BLOCKS_PER_FRAME : - KNOWN_DATA_BLOCKS_PER_FRAME] for frame in data]
 
@@ -983,11 +988,11 @@ def receiver(data):
     data = [np.true_divide(symbol, channel_response).tolist() for symbol in data]
 
     
-    # Discard second half of all symbols
-    data = [symbol[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK] for symbol in data]
+    # Discard second half of all symbols and keep only symbols in bins 100-1500
+    data = [symbol[L_PADDING + 1 : 1 + L_PADDING + CONSTELLATION_VALUES_PER_BLOCK] for symbol in data]
 
     for i in data:
-        if len(i) != 2047:
+        if len(i) != 1399:
             print(len(i))
     
 
@@ -1025,6 +1030,11 @@ def binary_to_text(input_data, print_out=False, save_to_file=True):
 
 def BER(input_data,received_data):
     
+    
+    ### THIS SHOULD NOT BE HERE!!!!!!
+    if len(received_data) > len(input_data):
+        received_data = received_data[:len(input_data)]
+    
     counter = 0
     
     print('input data',len(input_data))
@@ -1036,21 +1046,19 @@ def BER(input_data,received_data):
     ber = counter/len(received_data)
     print ("BER: ",ber)
     
-    return ber
+    return ber,received_data
 
 
 
 # == CALLING THE FUNCTIONS == #
 tx_data = transmit()
-
-test = fill_binary(text_to_binary())
+print(len(tx_data))
+test = text_to_binary()
 print(len(test))
 
 channel_response = [1,0.6,0.1,0.5,-0.9, 0.5, 0]
 
 convolved_signal = sg.convolve(tx_data, channel_response)
-
-convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
 #rx_data = add_noise_amp(tx_data, 0.01)
 rx_data = convolved_signal
@@ -1059,6 +1067,6 @@ r_data = receiver(rx_data)
 
 r_data = xor_binary_and_key(r_data)
 
-b_e_r = BER(r_data,text_to_binary())
+b_e_r,r_data = BER(test,r_data)
 
 binary_to_text(r_data)
