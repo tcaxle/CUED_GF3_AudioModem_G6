@@ -73,10 +73,11 @@ FILLER_VALUE = complex(0, 0) # Complex value to fill up partially full blocks
 PREFIXED_SYMBOL_LENGTH = N + CP #4800
 CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4 * PADDING) / 2) #2047
 DATA_BITS_PER_BLOCK = CONSTELLATION_VALUES_PER_BLOCK * BITS_PER_CONSTELLATION_VALUE #4094
-BLOCK_LENGTH = 180
-CHIRP_LENGTH = 5
-KNOWN_BLOCK_LENGTH = 20
-FRAME_LENGTH = (CHIRP_LENGTH + KNOWN_BLOCK_LENGTH + BLOCK_LENGTH + KNOWN_BLOCK_LENGTH)*PREFIXED_SYMBOL_LENGTH
+DATA_BLOCKS_PER_FRAME = 180
+CHIRP_BLOCKS_PER_FRAME = 5
+KNOWN_DATA_BLOCKS_PER_FRAME = 20
+FRAME_BLOCKS = CHIRP_BLOCKS_PER_FRAME + KNOWN_DATA_BLOCKS_PER_FRAME + DATA_BLOCKS_PER_FRAME + KNOWN_DATA_BLOCKS_PER_FRAME
+DATA_PER_FRAME = FRAME_BLOCKS*PREFIXED_SYMBOL_LENGTH
 
 """
 sounddevice settings
@@ -113,7 +114,7 @@ def norm(input_data):
 #######TRANSMITTER########
 
 
-def sweep(f_start=2000, f_end=4000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP), channels=1):
+def sweep(f_start=0, f_end=8000, sample_rate=SAMPLE_FREQUENCY,samples=5*(N+CP)):
     """
     Returns a frequency sweep
     """
@@ -399,21 +400,21 @@ def assemble_frame(input_data):
     #we have x blocks of ofdm symbols
     #we need ot divide by 180 so we get x/180 frames +1 frame if there's remainder
     
-    no_frames = int(np.ceil(len(input_data)/BLOCK_LENGTH))
+    no_frames = int(np.ceil(len(input_data)/DATA_BLOCKS_PER_FRAME))
     
     #check_typing(input_data)
     
     frames = [None]*no_frames
     #We are now getting 7 frames with P floats in each frame, using only the first P frame
     
-    chirp = sweep(f_start=2000,f_end=4000).tolist() #Length 5(N+CP)
+    chirp = sweep().tolist() #Length 5(N+CP)
     
 
     known_data = norm(20*get_known_data()) #Length 20(N+CP)
 
     #check_typing(input_data)
     #List of List of List of Float
-    output_data = [input_data[i : i + BLOCK_LENGTH] for i in range(0, len(input_data), BLOCK_LENGTH)]
+    output_data = [input_data[i : i + DATA_BLOCKS_PER_FRAME] for i in range(0, len(input_data), DATA_BLOCKS_PER_FRAME)]
    
     #List of List of Float
     for i,frame in enumerate(output_data):
@@ -423,8 +424,8 @@ def assemble_frame(input_data):
 
      
     #Needs to be appended with zeroes
-    output_data[-1] += [0.0] * (PREFIXED_SYMBOL_LENGTH*BLOCK_LENGTH - len(output_data[-1]))
-    # for i in range(BLOCK_LENGTH-len(output_data)):
+    output_data[-1] += [0.0] * (PREFIXED_SYMBOL_LENGTH*DATA_BLOCKS_PER_FRAME - len(output_data[-1]))
+    # for i in range(DATA_BLOCKS_PER_FRAME-len(output_data)):
     #     output_data.append(zero_block)
     
     #check_typing(output_data)
@@ -538,7 +539,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
         print("Length of CPed blocks:", len(data[0]))
         
         
-        chirp = sweep(f_start=2000,f_end=4000)
+        # chirp = sweep()
         
         data = assemble_frame(data)
         
@@ -621,6 +622,10 @@ def shift_finder(sample, data, sample_rate, window=50, plot=False, grad_mode = T
     #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
     shift = np.argmax(corr)
     
+    # plt.figure()
+    # plt.plot(data)
+    # plt.axvline(shift, color='r')
+    # plt.show()
     
     if shift < 0:
         print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
@@ -832,7 +837,7 @@ def synchronise(input_data,CP):
         return np.array(P), np.array(R), np.array(M)
         
     
-    def snc_start(P,R,M,ofdm_block_length,cp,threshold=0.9):
+    def snc_start(P,R,M,ofdm_DATA_BLOCKS_PER_FRAME,cp,threshold=0.9):
 
         # Low Pass Filter to smooth out plateau and noise
         num = np.ones(cp)/cp
@@ -854,7 +859,7 @@ def synchronise(input_data,CP):
         ##Multple crossings due to noise. To avoid, after the first crossing we skip the next 
         # N+CP crossings. 
         
-        ignored_crossings = np.ones(1+ofdm_block_length+cp) 
+        ignored_crossings = np.ones(1+ofdm_DATA_BLOCKS_PER_FRAME+cp) 
         ignored_crossings[0] = 0  
         ignore_times = (sg.lfilter(ignored_crossings, (1, ), zero_crossings) > 0).astype(int)
         zero_crossings = zero_crossings * (ignore_times == 0)   
@@ -895,15 +900,16 @@ def channel_estimation(symbols, known_block):
 
     # Remove DC value
     channel_response_freq[0] = 0
-    channel_response_freq[int(N / 2)] = 0
+    channel_response_freq[int(N / 2)] = channel_response_freq[int(N / 2)-1]
 
     
     #Might be needed later to avoid decoding issues
-    channel_response = np.fft.ifft(channel_response_freq, N)[:CP]
-    plt.plot(channel_response)
-    plt.show()
+    #channel_response = np.fft.ifft(channel_response_freq, N)[:CP-1]
+    # plt.figure(8)
+    # plt.plot(channel_response)
+    # plt.show()
    
-    # channel_response_freq = np.fft.fft(channel_response,N)
+    #channel_response_freq = np.fft.fft(channel_response,N)
     
     return channel_response_freq
 
@@ -921,20 +927,20 @@ def receiver(data):
     shift = shifts[0] + 1
 
     # Remove Stuff before and after data and split into frames
-    data = data[shift - CHIRP_LENGTH * PREFIXED_SYMBOL_LENGTH:]
-    data = [data[i : i + FRAME_LENGTH] for i in range(0, len(data), FRAME_LENGTH)]
-    if len(data[-1]) != FRAME_LENGTH:
+    data = data[shift - CHIRP_BLOCKS_PER_FRAME * PREFIXED_SYMBOL_LENGTH:]
+    data = [data[i : i + DATA_PER_FRAME] for i in range(0, len(data), DATA_PER_FRAME)]
+    print('haha',len(data[-1]))
+    if len(data[-1]) != DATA_PER_FRAME:
         del data[-1]
 
     # Check the power of each frame
     # Will be used to discard non-OFDM frames
-    frame_powers = [np.sqrt(np.mean(np.square(frame))) for frame in data]
-    #plt.plot(frame_powers)
-    #plt.show()
+    # frame_powers = [np.sqrt(np.mean(np.square(frame))) for frame in data]
+    # plt.plot(frame_powers)
+    # plt.show()
+    # # Remove the chirp
 
-    # Remove the chirp
-    data = [frame[CHIRP_LENGTH * PREFIXED_SYMBOL_LENGTH :] for frame in data]
-
+    data = [frame[CHIRP_BLOCKS_PER_FRAME * PREFIXED_SYMBOL_LENGTH :] for frame in data]
     # Channel Estimation
     frame = data[0]
     # Split into symbols
@@ -942,7 +948,7 @@ def receiver(data):
     # Isolate Estimation Symbols
     # Using the last 20 symbols might be more error-prone than useful --Charalambos
     # So use only first 20 symbols
-    estimation_symbols = frame[:KNOWN_BLOCK_LENGTH]
+    estimation_symbols = frame[:KNOWN_DATA_BLOCKS_PER_FRAME]
     estimation_symbols = norm(estimation_symbols)
     
     # Check that symbols the same
@@ -955,27 +961,40 @@ def receiver(data):
     # assert (estimation_symbols[0] == known_symbol).all()
     # print(channel_response)
     channel_response = channel_estimation(estimation_symbols, known_symbol)
+    
+    plt.figure()
     plt.plot(channel_response.real)
     plt.plot(channel_response.imag)
     plt.show()
     
     # Isolate data symbols
-    data = [symbol[CP:] for symbol in frame[KNOWN_BLOCK_LENGTH : - KNOWN_BLOCK_LENGTH] for frame in data]
+    data = [symbol[CP:] for symbol in frame[KNOWN_DATA_BLOCKS_PER_FRAME : - KNOWN_DATA_BLOCKS_PER_FRAME] for frame in data]
 
+        
     # FFT the symbols
     data = [np.fft.fft(symbol, N) for symbol in data]
-    plt.scatter(np.array(data).real, np.array(data).imag)
-    plt.show()
+
+    
+    # plt.figure()
+    # plt.scatter(np.array(data).real, np.array(data).imag)
+    # plt.show()
 
     # Divide each symbol by channel response
     data = [np.true_divide(symbol, channel_response).tolist() for symbol in data]
 
+    
     # Discard second half of all symbols
     data = [symbol[1 : 1 + CONSTELLATION_VALUES_PER_BLOCK] for symbol in data]
 
+    for i in data:
+        if len(i) != 2047:
+            print(len(i))
+    
+
     # Flatten into single list of symbols
     data = [symbol for frame in data for symbol in frame]
-    plt.scatter(np.array(data[-1000:]).real, np.array(data[-1000:]).imag)
+    plt.figure()
+    plt.scatter(np.array(data[:]).real, np.array(data[:]).imag)
     plt.show()
 
     # Map each symbol to constellation values
@@ -1004,19 +1023,42 @@ def binary_to_text(input_data, print_out=False, save_to_file=True):
         print(output_data.decode())
     return output_data
 
+def BER(input_data,received_data):
+    
+    counter = 0
+    
+    print('input data',len(input_data))
+    print('received data', len(received_data))
+    for i in range(len(received_data)):
+        if received_data[i] != input_data[i]:
+            counter += 1
+    
+    ber = counter/len(received_data)
+    print ("BER: ",ber)
+    
+    return ber
+
+
+
 # == CALLING THE FUNCTIONS == #
 tx_data = transmit()
 
-channel_response = [1,0.6,0.1,0.5, 0.9, 0.5, 0]
+test = fill_binary(text_to_binary())
+print(len(test))
+
+channel_response = [1,0.6,0.1,0.5,-0.9, 0.5, 0]
 
 convolved_signal = sg.convolve(tx_data, channel_response)
 
 convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
-#rx_data = add_noise_amp(tx_data, 100)
+#rx_data = add_noise_amp(tx_data, 0.01)
 rx_data = convolved_signal
 
-data = receiver(rx_data)
+r_data = receiver(rx_data)
 
-data = xor_binary_and_key(data)
-binary_to_text(data)
+r_data = xor_binary_and_key(r_data)
+
+b_e_r = BER(r_data,text_to_binary())
+
+binary_to_text(r_data)
