@@ -147,6 +147,7 @@ def sweep(f_start=0, f_end=8000, sample_rate=SAMPLE_FREQUENCY, samples=5*(N+CP))
 
     return f_sweep
 
+CHIRP = sweep()
 
 def get_known_data(save=False):
     with open("random_bits.txt", "r") as f:
@@ -365,7 +366,7 @@ def conjugate_block(input_data):
     # Find conjugates of reversed list
     return [np.conj(datum) for datum in input_data[::-1]]
 
-def assemble_block(input_data):
+def assemble_block(input_data,known_b=False):
     """
     Parameters
     ----------
@@ -386,10 +387,10 @@ def assemble_block(input_data):
     dc = [0]
     mid = [0]
     if L_PADDING !=0 or H_PADDING != 0:
+        if known_b:
+            return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
         return [dc + lower_padding + block + higher_padding + dc +  higher_padding + conjugate_block(block) + lower_padding for block in input_data]
-
-    return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
-
+    
 def block_ifft(input_data):
     """
     Parameters
@@ -437,7 +438,7 @@ def assemble_frame(input_data):
     frames = [None]*no_frames
     #We are now getting 7 frames with P floats in each frame, using only the first P frame
 
-    chirp = sweep().tolist() #Length 5(N+CP)
+    chirp = CHIRP.tolist() #Length 5(N+CP)
     chirp = norm(chirp)
 
     known_data = norm(KNOWN_DATA_BLOCKS_PER_FRAME*get_known_data())  # Length 20(N+CP)
@@ -652,17 +653,18 @@ def shift_finder(sample, data, sample_rate, window=50, grad_mode = True):
     #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
 
     for i, value in enumerate(corr):
-        corr[i] *= np.exp(-i*10**(-6))
+        corr[i] *= np.exp(-i*10**(-4))
 
-    plt.figure()
-    plt.plot(corr)
-    plt.show()
+    # plt.figure()
+    # plt.plot(corr)
+    # plt.show()
 
     shift = np.argmax(corr)
 
     plt.figure()
     plt.plot(data)
-    plt.axvline(shift, color='r')
+    plt.axvline(shift, color='r',label=str(shift))
+    #plt.legend()
     plt.show()
 
     if shift < 0:
@@ -936,13 +938,13 @@ def channel_estimation(symbols, known_block):
 
     # Remove DC value
     channel_response_freq[0] = 0
-    channel_response_freq[int(N / 2)] = channel_response_freq[int(N / 2)-1]
+    channel_response_freq[int(N / 2)] = 0
 
 
     #Might be needed later to avoid decoding issues
-    channel_response = np.fft.ifft(channel_response_freq, N)[:10]
+    # channel_response = np.fft.ifft(channel_response_freq, N)[:10]
     plt.figure()
-    plt.plot(channel_response)
+    plt.plot(channel_response_freq)
     plt.show()
 
     #channel_response_freq = np.fft.fft(channel_response,N)
@@ -951,12 +953,13 @@ def channel_estimation(symbols, known_block):
 
 def receiver(data):
     # Normalise known symbol to 16 bit range
-    known_symbol = norm(get_known_data())
+    known_symbol = get_known_data()
+    data = list(data)
     
     # Normalise data
-    data = norm(data)
+    #data = norm(data)
 
-    chirp = sweep()
+    chirp = CHIRP
 
     shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
     shift = shifts[0] + 1
@@ -986,18 +989,18 @@ def receiver(data):
     # The first symbol has a different response than the rest, even though they should be identical?
     # Discarded for testing
     estimation_symbols = frame[1:KNOWN_DATA_BLOCKS_PER_FRAME]
-    estimation_symbols = norm(estimation_symbols)
+    # estimation_symbols = norm(estimation_symbols)
     # Check that symbols the same
-    print('\nI AM HERE')
-    print(estimation_symbols[0][0:4])
-    print("\n 2nd block\n",estimation_symbols[1][0:4])
-    print("\n 3rd block\n",estimation_symbols[2][0:4])
-    print(np.max(estimation_symbols))
-    print(np.min(estimation_symbols))
-    print(known_symbol[0:4])
-    print(np.max(known_symbol))
-    print(np.min(known_symbol))
-    print("\nDONE")
+    # print('\nI AM HERE')
+    # print(estimation_symbols[0][0:4])
+    # print("\n 2nd block\n",estimation_symbols[1][0:4])
+    # print("\n 3rd block\n",estimation_symbols[2][0:4])
+    # print(np.max(estimation_symbols))
+    # print(np.min(estimation_symbols))
+    # print(known_symbol[0:4])
+    # print(np.max(known_symbol))
+    # print(np.min(known_symbol))
+    # print("\nDONE")
     # assert (estimation_symbols[0] == known_symbol).all()
     # print(channel_response)
     channel_response = channel_estimation(estimation_symbols, known_symbol)
@@ -1030,7 +1033,7 @@ def receiver(data):
     symbol_powers = norm(symbol_powers)
 
     for i,power in enumerate(symbol_powers):
-        if power < 0.5*32767:
+        if power < 0.5:
             data[i]=None
 
     data = [symbol for symbol in data if symbol]
@@ -1054,9 +1057,9 @@ def receiver(data):
     data = [symbol[L_PADDING + 1 : 1 + L_PADDING + CONSTELLATION_VALUES_PER_BLOCK] for symbol in data]
 
 
-    # plt.figure()
-    # plt.scatter(np.array(data).real, np.array(data).imag)
-    # plt.show()
+    plt.figure()
+    plt.scatter(np.array(data).real, np.array(data).imag)
+    plt.show()
     
     # Flatten into single list of symbols
     data = [value for symbol in data for value in symbol]
@@ -1090,15 +1093,15 @@ def binary_to_text(input_data, print_out=False, save_to_file=True):
 
 def BER(input_data,received_data):
 
+    print('input data',len(input_data))
+    print('received data', len(received_data))
 
     ## THIS SHOULD NOT BE HERE!!!!!!
-    # if len(received_data) > len(input_data):
-    #     received_data = received_data[:len(input_data)]
+    if len(received_data) > len(input_data):
+        received_data = received_data[:len(input_data)]
 
     counter = 0
 
-    print('input data',len(input_data))
-    print('received data', len(received_data))
     for i in range(len(received_data)):
         if received_data[i] != input_data[i]:
             counter += 1
@@ -1115,19 +1118,19 @@ tx_data = transmit(save_to_file=True)
 
 test = text_to_binary()
 
-channel_response = [1, -0.7,0.7, 2, -0.5, 0]
+# channel_response = [1, -0.7,0.7, 2, -0.5, 0]
 
-convolved_signal = sg.convolve(tx_data, channel_response)
-convolved_signal = convolved_signal[:-(len(channel_response)-1)]
+# convolved_signal = sg.convolve(tx_data, channel_response)
+# convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
 #rx_data = add_noise_amp(tx_data, 0.01)
-rx_data = convolved_signal
+rx_data = wavfile.read('recorded_output.wav')[1]
 
 r_data = receiver(rx_data)
 
 r_data = xor_binary_and_key(r_data)
 
-#b_e_r,r_data = BER(test,r_data)
+b_e_r,r_data = BER(test,r_data)
 
 binary_to_text(r_data,print_out=0)
 
