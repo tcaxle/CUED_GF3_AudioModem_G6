@@ -157,11 +157,16 @@ def get_known_data(save=False):
     # We need the equivalent of 1 OFDM symbol length and
     # We can repeat it 20 times as needed
     # Where would it be best to cut-off uneccesary data? In the file itself?
-
     data = binary_to_words(data)
+
     data = words_to_constellation_values(data)
+    
     data = constellation_values_to_data_blocks(data)
-    data = assemble_block(data)
+    
+    data = assemble_block(data,known_b=True)
+    
+    print('HERE', [block for symbol in data for block in symbol if np.abs(block) < 0.00001])
+    
     data = block_ifft(data)
     data = cyclic_prefix(data)
     if save:
@@ -386,9 +391,11 @@ def assemble_block(input_data,known_b=False):
     padding = [0] * PADDING
     dc = [0]
     mid = [0]
-    if L_PADDING !=0 or H_PADDING != 0:
-        if known_b:
-            return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
+    
+    if known_b:
+        return [dc + padding + block + padding + mid + padding + conjugate_block(block) + padding for block in input_data]
+       
+    if L_PADDING != 0 or H_PADDING != 0:
         return [dc + lower_padding + block + higher_padding + dc +  higher_padding + conjugate_block(block) + lower_padding for block in input_data]
     
 def block_ifft(input_data):
@@ -655,16 +662,15 @@ def shift_finder(sample, data, sample_rate, window=50, grad_mode = True):
     for i, value in enumerate(corr):
         corr[i] *= np.exp(-i*10**(-4))
 
-    # plt.figure()
-    # plt.plot(corr)
-    # plt.show()
 
     shift = np.argmax(corr)
 
     plt.figure()
     plt.plot(data)
-    plt.axvline(shift, color='r',label=str(shift))
-    #plt.legend()
+    plt.axvline(shift, color='r',label= "End of first chirp: "+str(shift))
+    plt.xlabel('Samples')
+    plt.ylabel('Magnitude')
+    plt.legend()
     plt.show()
 
     if shift < 0:
@@ -922,38 +928,69 @@ def generate_key():
 
 def channel_estimation(symbols, known_block):
 
+    
+    first_symbol = np.fft.fft(symbols[0],N)
+    last_symbol = np.fft.fft(symbols[-1],N)
+    # known_block = known_block[CP:]
+
+    # symbols = [symbol[CP:] for symbol in symbols]
+    
+    
     # Take average value of H determined for each block
     symbols = np.average(symbols, axis = 0)
     
     symbols_freq = np.fft.fft(symbols, N)
     
-    known_block_freq = np.fft.fft(known_block, N)
+    #This should not print out anything and yet it does
+    print([block for block in known_block if np.abs(block) < 0.00001])
     
+    
+    known_block_freq = np.fft.fft(known_block, N)
+
     channel_response_freq = np.true_divide(
         symbols_freq,
         known_block_freq,
         out=np.zeros_like(symbols_freq),
-        where=known_block_freq != 0,
+        where=np.abs(known_block_freq) >  0.01,
     )
-
+    
+    
     # Remove DC value
     channel_response_freq[0] = 0
     channel_response_freq[int(N / 2)] = 0
-
-
+    
     #Might be needed later to avoid decoding issues
     # channel_response = np.fft.ifft(channel_response_freq, N)[:10]
-    plt.figure()
-    plt.plot(channel_response_freq)
-    plt.show()
+    # plt.figure()
+    # plt.title("Channel Responce in DFT domain")
+    # plt.plot(channel_response)
+    # plt.show()
 
+    
+    #####Linear phase stuff
+    first_symbol_resp = np.true_divide(first_symbol,known_block_freq, out=np.zeros_like(first_symbol),where=known_block_freq != 0)
+    last_symbol_resp = np.true_divide(last_symbol,known_block_freq, out=np.zeros_like(last_symbol),where=known_block_freq != 0)
+    
+    phase_shift_start = np.angle(first_symbol_resp,deg=True)
+    phase_shift_end = np.angle(last_symbol_resp,deg=True)
+    phase_shift_start = np.unwrap(phase_shift_start)
+    phase_shift_end = np.unwrap(phase_shift_end)
+    phase_shift = np.subtract(phase_shift_end,phase_shift_start)
+    plt.figure()
+    plt.plot(first_symbol_resp, color='r')
+    plt.plot(last_symbol_resp)
+    plt.show()
+    print(phase_shift)
+    plt.figure()
+    plt.plot(phase_shift)
+    plt.show()
+    
     #channel_response_freq = np.fft.fft(channel_response,N)
 
     return channel_response_freq
 
 def receiver(data):
-    # Normalise known symbol to 16 bit range
-    known_symbol = get_known_data()
+    
     data = list(data)
     
     # Normalise data
@@ -988,7 +1025,7 @@ def receiver(data):
     # So use only first 20 symbols
     # The first symbol has a different response than the rest, even though they should be identical?
     # Discarded for testing
-    estimation_symbols = frame[1:KNOWN_DATA_BLOCKS_PER_FRAME]
+    estimation_symbols = frame[1:KNOWN_DATA_BLOCKS_PER_FRAME] + frame[-KNOWN_DATA_BLOCKS_PER_FRAME:-1]
     # estimation_symbols = norm(estimation_symbols)
     # Check that symbols the same
     # print('\nI AM HERE')
@@ -1062,7 +1099,9 @@ def receiver(data):
 
 
     plt.figure()
-    plt.scatter(np.array(data).real, np.array(data).imag)
+    plt.title("Symbols before demapping")
+    for i in range(1,100,5):
+        plt.scatter(np.array(data[1][i:i+i]).real, np.array(data[1][i:i+i]).imag)
     plt.show()
     
     # Flatten into single list of symbols
@@ -1122,13 +1161,15 @@ tx_data = transmit(save_to_file=True)
 
 test = text_to_binary()
 
-# channel_response = [1, -0.7,0.7, 2, -0.5, 0]
+channel_response = [1, -0.7,0.7, 2, -0.5, 0]
 
-# convolved_signal = sg.convolve(tx_data, channel_response)
-# convolved_signal = convolved_signal[:-(len(channel_response)-1)]
+convolved_signal = sg.convolve(tx_data, channel_response)
+convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
 #rx_data = add_noise_amp(tx_data, 0.01)
 rx_data = wavfile.read('recorded_output.wav')[1]
+
+# rx_data = convolved_signal
 
 r_data = receiver(rx_data)
 
