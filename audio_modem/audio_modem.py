@@ -1003,6 +1003,10 @@ def receiver(data):
     # print("\nDONE")
     # assert (estimation_symbols[0] == known_symbol).all()
     # print(channel_response)
+    estimation_symbols = [norm(symbol) for symbol in estimation_symbols]
+    known_symbol = norm(known_symbol)
+    print(max(estimation_symbols[0]))
+    print(max(known_symbol))
     channel_response = channel_estimation(estimation_symbols, known_symbol)
 
     # plt.figure()
