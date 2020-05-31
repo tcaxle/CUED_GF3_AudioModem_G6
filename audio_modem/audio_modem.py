@@ -163,7 +163,7 @@ def get_known_data(save=False):
     
     data = constellation_values_to_data_blocks(data)
     
-    data = assemble_block(data,known_b=True)
+    data = assemble_block(data,known_b=False)
     
     print('HERE', [block for symbol in data for block in symbol if np.abs(block) < 0.00001])
     
@@ -1041,6 +1041,7 @@ def receiver(data):
     # assert (estimation_symbols[0] == known_symbol).all()
     # print(channel_response)
     estimation_symbols = [norm(symbol) for symbol in estimation_symbols]
+    known_symbol = get_known_data()
     known_symbol = norm(known_symbol)
     print(max(estimation_symbols[0]))
     print(max(known_symbol))
