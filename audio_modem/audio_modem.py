@@ -18,7 +18,7 @@ _
 3. Blocks:
 
     [< L-0 >|< DATA >|< H-0 >|< MID >|< H-0 >|< CONJUGATE DATA >|< L-0 >|
-    |--99---|--1399--|--550--|---1---|--550--|------1399--------|---99--|
+    |--99---|--1400--|--549--|---1---|--549--|------1400--------|---99--|
     |--------------------------------4096-------------------------------|
 
 4. Symbols (after IFFT):
@@ -55,7 +55,7 @@ Constants
 N = 4096 # DFT length
 PADDING = 0 # Frequency padding within block
 L_PADDING = 98 #For assymetrical padding as requested
-H_PADDING = 550
+H_PADDING = 549
 CP = 704 # Length of cyclic prefix
 
 BITS_PER_CONSTELLATION_VALUE = 2 # Length of binary word per constellation symbol
@@ -163,9 +163,9 @@ def get_known_data(save=False):
     
     data = constellation_values_to_data_blocks(data)
     
-    data = assemble_block(data,known_b=False)
+    data = assemble_block(data,known_b=True)
     
-    print('HERE', [block for symbol in data for block in symbol if np.abs(block) < 0.00001])
+    print('These blocks are destroying channel estimation: ', [block for symbol in data for block in symbol if np.abs(block) < 0.001])
     
     data = block_ifft(data)
     data = cyclic_prefix(data)
@@ -179,7 +179,7 @@ def get_known_data(save=False):
 
     return data[0]
 
-def text_to_binary(input_file="input.txt"):
+def text_to_binary(input_file):
     """
     Parameters
     ----------
@@ -194,10 +194,23 @@ def text_to_binary(input_file="input.txt"):
     # Open the file and read the data
     with open(input_file, "rb") as f:
         output_data = f.read()
-
+        
+    
+    input_length = bytes(str(len(output_data)),"utf8")
+    
+    input_length = "".join(format(datum, "b").zfill(8) for datum in input_length)
+    
+    input_file = bytes(input_file,"utf8")
+    
+    name = "".join(format(datum, "b").zfill(8) for datum in input_file)
+    zeroes = '00000000'
+    
     # Encode text data as binary with utf-8 encoding
     # zfill ensures each word is 8 bits long
-    return "".join(format(datum, "b").zfill(8) for datum in output_data)
+    output_data =  "".join(format(datum, "b").zfill(8) for datum in output_data)
+
+    return name + zeroes + input_length + zeroes + output_data
+
 
 def wav_to_binary(input_file="input.wav"):
     """
@@ -596,7 +609,7 @@ def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppr
         # wav_output(data,SAMPLE_FREQUENCY)
         # wav_output(chirp,SAMPLE_FREQUENCY)
     else:
-        data = text_to_binary()
+        data = text_to_binary(input_file)
         data = fill_binary(data)
         data = xor_binary_and_key(data)
         data = binary_to_words(data)
@@ -941,6 +954,7 @@ def channel_estimation(symbols, known_block):
     
     symbols_freq = np.fft.fft(symbols, N)
     
+    
     #This should not print out anything and yet it does
     print([block for block in known_block if np.abs(block) < 0.00001])
     
@@ -951,7 +965,7 @@ def channel_estimation(symbols, known_block):
         symbols_freq,
         known_block_freq,
         out=np.zeros_like(symbols_freq),
-        where=np.abs(known_block_freq) >  0.01,
+        where = np.abs(known_block_freq) >  0.01,
     )
     
     
@@ -973,16 +987,28 @@ def channel_estimation(symbols, known_block):
     
     phase_shift_start = np.angle(first_symbol_resp,deg=True)
     phase_shift_end = np.angle(last_symbol_resp,deg=True)
+
     phase_shift_start = np.unwrap(phase_shift_start)
     phase_shift_end = np.unwrap(phase_shift_end)
+
     phase_shift = np.subtract(phase_shift_end,phase_shift_start)
+
+    x = np.linspace(0,N,N)
+   
     plt.figure()
     plt.plot(first_symbol_resp, color='r')
     plt.plot(last_symbol_resp)
     plt.show()
-    print(phase_shift)
+    
     plt.figure()
-    plt.plot(phase_shift)
+    plt.plot(phase_shift,label="sub")
+    lin_phase_shift = np.polyfit(x,phase_shift,deg=1)
+    print(lin_phase_shift)
+    
+    lin_phase_shift = [i*lin_phase_shift[0]+lin_phase_shift[1] for i in x]
+    
+    plt.plot(lin_phase_shift, label='lin')
+    plt.legend()
     plt.show()
     
     #channel_response_freq = np.fft.fft(channel_response,N)
@@ -1025,9 +1051,10 @@ def receiver(data):
     # So use only first 20 symbols
     # The first symbol has a different response than the rest, even though they should be identical?
     # Discarded for testing
-    estimation_symbols = frame[1:KNOWN_DATA_BLOCKS_PER_FRAME] + frame[-KNOWN_DATA_BLOCKS_PER_FRAME:-1]
+    estimation_symbols = frame[0:KNOWN_DATA_BLOCKS_PER_FRAME] + frame[-KNOWN_DATA_BLOCKS_PER_FRAME:]
     # estimation_symbols = norm(estimation_symbols)
-    # Check that symbols the same
+    #Check that symbols the same
+    known_symbol = get_known_data()
     # print('\nI AM HERE')
     # print(estimation_symbols[0][0:4])
     # print("\n 2nd block\n",estimation_symbols[1][0:4])
@@ -1039,7 +1066,6 @@ def receiver(data):
     # print(np.min(known_symbol))
     # print("\nDONE")
     # assert (estimation_symbols[0] == known_symbol).all()
-    # print(channel_response)
     estimation_symbols = [norm(symbol) for symbol in estimation_symbols]
     known_symbol = get_known_data()
     known_symbol = norm(known_symbol)
@@ -1158,9 +1184,9 @@ def BER(input_data,received_data):
 
 
 # == CALLING THE FUNCTIONS == #
-tx_data = transmit(save_to_file=True)
+tx_data = transmit(input_file = "group6.txt",save_to_file=True)
 
-test = text_to_binary()
+test = text_to_binary('group6.txt')
 
 channel_response = [1, -0.7,0.7, 2, -0.5, 0]
 
@@ -1168,11 +1194,11 @@ convolved_signal = sg.convolve(tx_data, channel_response)
 convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
 #rx_data = add_noise_amp(tx_data, 0.01)
-rx_data = wavfile.read('recorded_output.wav')[1]
+rx_data = wavfile.read('new_recorded_output.wav')[1]
 
 # rx_data = convolved_signal
 
-r_data = receiver(rx_data)
+r_data = receiver(tx_data)
 
 r_data = xor_binary_and_key(r_data)
 
