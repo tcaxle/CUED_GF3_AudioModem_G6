@@ -475,18 +475,21 @@ def assemble_frame(input_data):
 
     #Needs to be appended with zeroes
     #output_data[-1] += [0.0] * (PREFIXED_SYMBOL_LENGTH*DATA_BLOCKS_PER_FRAME - len(output_data[-1]))
-    # for i in range(DATA_BLOCKS_PER_FRAME-len(output_data)):
-    #     output_data.append(zero_block)
-
+    
     #check_typing(output_data)
 
     #output_data = [floats for frames in output_data for floats in blocks]
     #check_typing(output_data)
-
+    
     frames = [chirp + known_data + block + known_data for block in output_data]
     check_typing(frames)
-    frames[-1] = frames[-1][-len(known_data):]
+    last_frame = frames[-1]
+    last_frame= last_frame[:-len(known_data)]
+    frames[-1]=last_frame
+    # frames[-1] = frames[-1][:-len(known_data)]
     frames[-1] += chirp
+
+  
     #Flatten frames
 
 
@@ -517,7 +520,7 @@ def output(input_data, save_to_file=False, suppress_audio=False):
     # Pad with 0.1s of silence either side of transmitted data
     silent_padding = [0] * int(SAMPLE_FREQUENCY * 0.1)
     data = silent_padding + [datum for block in data for datum in block] + silent_padding
-
+    print(len(data))
     # # convert to 16-bit data
     # data = np.array(data).astype(np.float32)
     # # Normalise to 16-bit range
@@ -539,7 +542,7 @@ def output(input_data, save_to_file=False, suppress_audio=False):
 
     return data
 
-def transmit(input_file="input.txt", input_type="txt", save_to_file=False, suppress_audio=False,DEBUG=False):
+def transmit(input_file="group6.txt", input_type="txt", save_to_file=True, suppress_audio=False,DEBUG=False):
     """
     Parameters
     ----------
@@ -672,12 +675,22 @@ def shift_finder(sample, data, sample_rate, window=50, grad_mode = True):
     #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
 
     for i, value in enumerate(corr):
-        corr[i] *= np.exp(-i*10**(-6))
+        corr[i] *= np.exp(-i*10**(-4))
         
 
 
 
     shift = np.argmax(corr)
+    
+    plt.figure()
+    plt.plot(data)
+    plt.axvline(shift, color='r',label= "End of first chirp: "+str(shift))
+    plt.xlabel('Samples')
+    plt.xticks(rotation="-45")
+    plt.ylabel('Magnitude')
+    plt.legend()
+    plt.show()
+
 
     if shift < 0:
         print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
@@ -1035,7 +1048,7 @@ def receiver(data):
     frame = [frame[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(frame), PREFIXED_SYMBOL_LENGTH)]
 
     # Isolate Estimation Symbols
-    estimation_symbols = frame[0:KNOWN_DATA_BLOCKS_PER_FRAME] + frame[-KNOWN_DATA_BLOCKS_PER_FRAME:]
+    estimation_symbols = frame[0:KNOWN_DATA_BLOCKS_PER_FRAME]
     estimation_symbols = [norm(symbol) for symbol in estimation_symbols]
     
     known_symbol = get_known_data()
@@ -1167,15 +1180,15 @@ test = text_to_binary('group6.txt')
 #convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
 #rx_data = add_noise_amp(tx_data, 0.01)
-# rx_data = wavfile.read('challenge2_grp1.wav')[1][:4000000]
+rx_data = wavfile.read('sunday_test_received.wav')[1]
 
 # # rx_data = convolved_signal
 
-# r_data = receiver(rx_data)
+r_data = receiver(rx_data)
 
-# r_data = xor_binary_and_key(r_data)
+r_data = xor_binary_and_key(r_data)
 
-# #b_e_r,r_data = BER(test,r_data)
+b_e_r,r_data = BER(test,r_data)
 
-# binary_to_text(r_data,print_out=0)
+binary_to_text(r_data,print_out=0)
 
