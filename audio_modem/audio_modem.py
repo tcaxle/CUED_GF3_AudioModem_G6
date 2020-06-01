@@ -75,7 +75,7 @@ FILLER_VALUE = complex(0, 0)  # Complex value to fill up partially full blocks
 PREFIXED_SYMBOL_LENGTH = N + CP  # 4800
 
 if L_PADDING != 0 or H_PADDING != 0:
-    CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 2*(L_PADDING+H_PADDING)) / 2)  # 1399
+    CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 2*(L_PADDING+H_PADDING)) / 2)  # 1400
 else:
     CONSTELLATION_VALUES_PER_BLOCK = int((N - 2 - 4*(PADDING)) / 2)
 
@@ -165,8 +165,7 @@ def get_known_data(save=False):
     
     data = assemble_block(data,known_b=True)
     
-    print('These blocks are destroying channel estimation: ', [block for symbol in data for block in symbol if np.abs(block) < 0.001])
-    
+   
     data = block_ifft(data)
     data = cyclic_prefix(data)
     if save:
@@ -199,7 +198,7 @@ def text_to_binary(input_file):
     input_length = bytes(str(len(output_data)),"utf8")
     
     input_length = "".join(format(datum, "b").zfill(8) for datum in input_length)
-    
+        
     input_file = bytes(input_file,"utf8")
     
     name = "".join(format(datum, "b").zfill(8) for datum in input_file)
@@ -475,7 +474,7 @@ def assemble_frame(input_data):
 
 
     #Needs to be appended with zeroes
-    output_data[-1] += [0.0] * (PREFIXED_SYMBOL_LENGTH*DATA_BLOCKS_PER_FRAME - len(output_data[-1]))
+    #output_data[-1] += [0.0] * (PREFIXED_SYMBOL_LENGTH*DATA_BLOCKS_PER_FRAME - len(output_data[-1]))
     # for i in range(DATA_BLOCKS_PER_FRAME-len(output_data)):
     #     output_data.append(zero_block)
 
@@ -485,8 +484,9 @@ def assemble_frame(input_data):
     #check_typing(output_data)
 
     frames = [chirp + known_data + block + known_data for block in output_data]
-
-    #check_typing(frames)
+    check_typing(frames)
+    frames[-1] = frames[-1][-len(known_data):]
+    frames[-1] += chirp
     #Flatten frames
 
 
@@ -663,7 +663,6 @@ def shift_finder(sample, data, sample_rate, window=50, grad_mode = True):
 
     #Correlation between sample and data, normalised
     corr = sg.correlate(dd_data, dd_sample, mode='full')
-
     #This normalised the corr, but it gives errors
     #corr = corr / np.sqrt(signal.correlate(dd_sample, dd_sample, mode='')[int(n/2)] * signal.correlate(dd_data, dd_data, mode='same')[int(n/2)])
 
@@ -673,18 +672,12 @@ def shift_finder(sample, data, sample_rate, window=50, grad_mode = True):
     #Estimates the point at which the peak correlation occurs  //This is not robust enough, needs smarter method
 
     for i, value in enumerate(corr):
-        corr[i] *= np.exp(-i*10**(-4))
+        corr[i] *= np.exp(-i*10**(-6))
+        
+
 
 
     shift = np.argmax(corr)
-
-    plt.figure()
-    plt.plot(data)
-    plt.axvline(shift, color='r',label= "End of first chirp: "+str(shift))
-    plt.xlabel('Samples')
-    plt.ylabel('Magnitude')
-    plt.legend()
-    plt.show()
 
     if shift < 0:
         print('data is ' + str(np.round(abs(shift),3)) + 's ahead of the sample, something is wrong')
@@ -995,21 +988,21 @@ def channel_estimation(symbols, known_block):
 
     x = np.linspace(0,N,N)
    
-    plt.figure()
-    plt.plot(first_symbol_resp, color='r')
-    plt.plot(last_symbol_resp)
-    plt.show()
+    # plt.figure()
+    # plt.plot(first_symbol_resp, color='r')
+    # plt.plot(last_symbol_resp)
+    # plt.show()
     
-    plt.figure()
-    plt.plot(phase_shift,label="sub")
+    # plt.figure()
+    # plt.plot(phase_shift,label="sub")
     lin_phase_shift = np.polyfit(x,phase_shift,deg=1)
-    print(lin_phase_shift)
+    # print(lin_phase_shift)
     
     lin_phase_shift = [i*lin_phase_shift[0]+lin_phase_shift[1] for i in x]
     
-    plt.plot(lin_phase_shift, label='lin')
-    plt.legend()
-    plt.show()
+    # plt.plot(lin_phase_shift, label='lin')
+    # plt.legend()
+    # plt.show()
     
     #channel_response_freq = np.fft.fft(channel_response,N)
 
@@ -1018,26 +1011,20 @@ def channel_estimation(symbols, known_block):
 def receiver(data):
     
     data = list(data)
-    
-    # Normalise data
-    #data = norm(data)
 
     chirp = CHIRP
-
+    
+    #Find how much to shift to reach the first chirp //Synchronisation
     shifts = shift_finder(chirp, data, SAMPLE_FREQUENCY,window=0)
     shift = shifts[0] + 1
 
     # Remove Stuff before and after data and split into frames
+    # 1) Remove everything up to the beginning of the first chirp
+    # 2) Split into frames (unkown number), remove last frame if it's not a full frame
     data = data[shift - CHIRP_BLOCKS_PER_FRAME * PREFIXED_SYMBOL_LENGTH:]
     data = [data[i : i + DATA_PER_FRAME] for i in range(0, len(data), DATA_PER_FRAME)]
     if len(data[-1]) != DATA_PER_FRAME:
         del data[-1]
-
-    # Check the power of each frame
-    # Will be used to discard non-OFDM frames
-    # frame_powers = [np.sqrt(np.mean(np.square(frame))) for frame in data]
-    # plt.plot(frame_powers)
-    # plt.show()
         
     # Remove the chirp
     data = [frame[CHIRP_BLOCKS_PER_FRAME * PREFIXED_SYMBOL_LENGTH :] for frame in data]
@@ -1046,31 +1033,14 @@ def receiver(data):
     frame = data[0]
     # Split into symbols
     frame = [frame[i : i + PREFIXED_SYMBOL_LENGTH] for i in range(0, len(frame), PREFIXED_SYMBOL_LENGTH)]
+
     # Isolate Estimation Symbols
-    # Using the last 20 symbols might be more error-prone than useful --Charalambos
-    # So use only first 20 symbols
-    # The first symbol has a different response than the rest, even though they should be identical?
-    # Discarded for testing
     estimation_symbols = frame[0:KNOWN_DATA_BLOCKS_PER_FRAME] + frame[-KNOWN_DATA_BLOCKS_PER_FRAME:]
-    # estimation_symbols = norm(estimation_symbols)
-    #Check that symbols the same
-    known_symbol = get_known_data()
-    # print('\nI AM HERE')
-    # print(estimation_symbols[0][0:4])
-    # print("\n 2nd block\n",estimation_symbols[1][0:4])
-    # print("\n 3rd block\n",estimation_symbols[2][0:4])
-    # print(np.max(estimation_symbols))
-    # print(np.min(estimation_symbols))
-    # print(known_symbol[0:4])
-    # print(np.max(known_symbol))
-    # print(np.min(known_symbol))
-    # print("\nDONE")
-    # assert (estimation_symbols[0] == known_symbol).all()
     estimation_symbols = [norm(symbol) for symbol in estimation_symbols]
+    
     known_symbol = get_known_data()
     known_symbol = norm(known_symbol)
-    print(max(estimation_symbols[0]))
-    print(max(known_symbol))
+    
     channel_response = channel_estimation(estimation_symbols, known_symbol)
 
     # plt.figure()
@@ -1080,11 +1050,11 @@ def receiver(data):
 
     # plt.figure()
     # plt.scatter(channel_response.real,channel_response.imag)
+   
     # Isolate data symbols
-    # check_typing(data)
-    # print("ehe",len((data[0][KNOWN_DATA_BLOCKS_PER_FRAME*PREFIXED_SYMBOL_LENGTH:-PREFIXED_SYMBOL_LENGTH*KNOWN_DATA_BLOCKS_PER_FRAME])))
     data = [frame[KNOWN_DATA_BLOCKS_PER_FRAME*PREFIXED_SYMBOL_LENGTH : - PREFIXED_SYMBOL_LENGTH*KNOWN_DATA_BLOCKS_PER_FRAME] for frame in data]
 
+    #Remove chirp and take blocks of 4800
     for i,frame in enumerate(data):
         frame = [frame[i:i+PREFIXED_SYMBOL_LENGTH][CP:] for i in range(0,len(frame),PREFIXED_SYMBOL_LENGTH)]
         data[i]=frame
@@ -1092,20 +1062,19 @@ def receiver(data):
 
 
     data = [symbol for frame in data for symbol in frame]
-
-    # check_typing(data)
-
+  
     #Power Checking
     symbol_powers = np.array([np.sqrt(np.mean(np.square(symbol))) for symbol in data])
     symbol_powers -= np.min(symbol_powers)
     symbol_powers = norm(symbol_powers)
 
     for i,power in enumerate(symbol_powers):
-        if power < 0.5:
+        if power < 0.1*32767:
             data[i]=None
 
     data = [symbol for symbol in data if symbol]
-
+    #check_typing(data)
+    # plt.figure()
     # plt.plot(symbol_powers)
     # plt.show()
 
@@ -1123,17 +1092,16 @@ def receiver(data):
 
     # Discard second half of all symbols and keep only symbols in bins 100-1500
     data = [symbol[L_PADDING + 1 : 1 + L_PADDING + CONSTELLATION_VALUES_PER_BLOCK] for symbol in data]
-
-
-    plt.figure()
-    plt.title("Symbols before demapping")
-    for i in range(1,100,5):
-        plt.scatter(np.array(data[1][i:i+i]).real, np.array(data[1][i:i+i]).imag)
-    plt.show()
+    
     
     # Flatten into single list of symbols
     data = [value for symbol in data for value in symbol]
 
+    # plt.figure()
+    # plt.title("Symbols before demapping")
+    # plt.scatter(np.array(data).real, np.array(data).imag)
+    # plt.show()
+    
 
     # Map each symbol to constellation values
     for i,value in enumerate(data):
@@ -1166,18 +1134,23 @@ def BER(input_data,received_data):
     print('input data',len(input_data))
     print('received data', len(received_data))
 
-    ## THIS SHOULD NOT BE HERE!!!!!!
     if len(received_data) > len(input_data):
         received_data = received_data[:len(input_data)]
+    
+    ber = [0]*2
+    for i in range(0,2):
+        
+        doc_data = received_data[i:]
 
-    counter = 0
+        counter = 0
 
-    for i in range(len(received_data)):
-        if received_data[i] != input_data[i]:
-            counter += 1
+        for j in range(len(doc_data)):
+            if doc_data[j] != input_data[j]:
+                counter += 1
 
-    ber = counter/len(received_data)
-    print ("BER: ",ber)
+        ber[i] = counter/len(received_data)
+    
+    print ("BER: ",np.min(ber))
 
     return ber,received_data
 
@@ -1188,21 +1161,21 @@ tx_data = transmit(input_file = "group6.txt",save_to_file=True)
 
 test = text_to_binary('group6.txt')
 
-channel_response = [1, -0.7,0.7, 2, -0.5, 0]
+#channel_response = [1, -0.7,0.7, 2, -0.5, 0]
 
-convolved_signal = sg.convolve(tx_data, channel_response)
-convolved_signal = convolved_signal[:-(len(channel_response)-1)]
+#convolved_signal = sg.convolve(tx_data, channel_response)
+#convolved_signal = convolved_signal[:-(len(channel_response)-1)]
 
 #rx_data = add_noise_amp(tx_data, 0.01)
-rx_data = wavfile.read('new_recorded_output.wav')[1]
+# rx_data = wavfile.read('challenge2_grp1.wav')[1][:4000000]
 
-# rx_data = convolved_signal
+# # rx_data = convolved_signal
 
-r_data = receiver(tx_data)
+# r_data = receiver(rx_data)
 
-r_data = xor_binary_and_key(r_data)
+# r_data = xor_binary_and_key(r_data)
 
-b_e_r,r_data = BER(test,r_data)
+# #b_e_r,r_data = BER(test,r_data)
 
-binary_to_text(r_data,print_out=0)
+# binary_to_text(r_data,print_out=0)
 
